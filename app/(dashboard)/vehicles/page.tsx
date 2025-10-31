@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Car, Wrench, DollarSign, FileText, Plus, Filter, Eye, Edit, Trash2, Calendar, Phone, Mail } from 'lucide-react'
+import { Search, Car, Wrench, DollarSign, FileText, Plus, Filter, Eye, Edit, Trash2, Calendar, Phone, Mail, CheckCircle, Percent } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import VehicleDetailsModal from './components/VehicleDetailsModal'
+import { notificationWorkflow } from '@/lib/notification-workflow'
 import { checkUserRole, type UserRole } from '@/lib/rbac'
 
 export default function VehiclesPage() {
@@ -48,33 +49,64 @@ export default function VehiclesPage() {
 
       if (data && data.length > 0) {
         // Map database data to display format
-        const mappedVehicles = data.map((v: any) => ({
-          id: v.id,
-          shortId: v.short_id || v.id.substring(0, 8), // Use short_id if available
-          regNo: v.registration_number || 'N/A',
-          make: v.make && v.make !== 'Unknown' ? v.make : 'N/A',
-          model: v.model || 'N/A',
-          year: v.year,
-          color: v.color,
-          customer: v.customer_name || 'N/A',
-          customerPhone: v.customer_phone,
-          customerEmail: v.customer_email,
-          customerAddress: v.customer_address,
-          customerCity: v.customer_city,
-          customerState: v.customer_state,
-          customerPincode: v.customer_pincode,
-          status: v.status || 'pending',
-          date: new Date(v.created_at).toISOString().split('T')[0],
-          issues: v.issues_reported,
-          accessories: v.accessories_requested,
-          estimatedCost: v.estimated_cost,
-          priority: v.priority,
-          odometerReading: v.odometer_reading,
-          totalServices: v.total_services || 0,
-          nextService: v.next_service_date || 'N/A',
-          // Store full data for editing
-          fullData: v
-        }))
+        const mappedVehicles = data.map((v: any) => {
+          // Parse discount info from notes field
+          let hasDiscount = false
+          let discountAmount = 0
+          let discountPercentage = 0
+          let discountOfferedBy = ''
+          
+          if (v.notes) {
+            try {
+              const notesData = JSON.parse(v.notes)
+              if (notesData.discount && notesData.discount.discount_amount) {
+                hasDiscount = parseFloat(notesData.discount.discount_amount) > 0
+                discountAmount = parseFloat(notesData.discount.discount_amount) || 0
+                discountPercentage = notesData.discount.discount_percentage || 0
+                discountOfferedBy = notesData.discount.discount_offered_by || ''
+              }
+            } catch {
+              // If parsing fails, discount info not in notes
+            }
+          }
+          
+          // Check if accountant has marked as complete
+          const isAccountantComplete = v.status === 'completed'
+          
+          return {
+            id: v.id,
+            shortId: v.short_id || v.id.substring(0, 8), // Use short_id if available
+            regNo: v.registration_number || 'N/A',
+            make: v.make && v.make !== 'Unknown' ? v.make : 'N/A',
+            model: v.model || 'N/A',
+            year: v.year,
+            color: v.color,
+            customer: v.customer_name || 'N/A',
+            customerPhone: v.customer_phone,
+            customerEmail: v.customer_email,
+            customerAddress: v.customer_address,
+            customerCity: v.customer_city,
+            customerState: v.customer_state,
+            customerPincode: v.customer_pincode,
+            status: v.status || 'pending',
+            date: new Date(v.created_at).toISOString().split('T')[0],
+            issues: v.issues_reported,
+            accessories: v.accessories_requested,
+            estimatedCost: v.estimated_cost,
+            priority: v.priority,
+            odometerReading: v.odometer_reading,
+            totalServices: v.total_services || 0,
+            nextService: v.next_service_date || 'N/A',
+            // Accountant and discount indicators
+            isAccountantComplete,
+            hasDiscount,
+            discountAmount,
+            discountPercentage,
+            discountOfferedBy,
+            // Store full data for editing
+            fullData: v
+          }
+        })
         setVehicles(mappedVehicles)
       }
     } catch (error) {
@@ -173,6 +205,19 @@ export default function VehiclesPage() {
           ? { ...vehicle, status: newStatus }
           : vehicle
       ))
+
+      // Send WhatsApp notification if status is delivered
+      if (newStatus === 'delivered' || newStatus === 'complete_and_delivered') {
+        try {
+          const vehicleData = data[0]
+          if (vehicleData) {
+            await notificationWorkflow.notifyVehicleDelivered(vehicleId, vehicleData)
+          }
+        } catch (notifError) {
+          console.error('Error sending notification:', notifError)
+          // Don't block success if notification fails
+        }
+      }
 
       const statusName = newStatus.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
       alert(`Status updated to: ${statusName}`)
@@ -501,8 +546,21 @@ export default function VehiclesPage() {
                 <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No vehicles found.</td>
               </tr>
             ) : (
-              filteredVehicles.map((vehicle, index) => (
-                <tr key={vehicle.id} style={{ borderBottom: index === filteredVehicles.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+              filteredVehicles.map((vehicle, index) => {
+                // Determine if row should have special styling
+                const isSpecialRow = vehicle.isAccountantComplete || vehicle.hasDiscount
+                const rowBgColor = isSpecialRow ? '#f0f9ff' : 'transparent' // Light blue background for special rows
+                const rowBorderColor = isSpecialRow ? '#3b82f6' : '#f1f5f9' // Blue border for special rows
+                
+                return (
+                <tr 
+                  key={vehicle.id} 
+                  style={{ 
+                    borderBottom: index === filteredVehicles.length - 1 ? 'none' : `2px solid ${rowBorderColor}`,
+                    backgroundColor: rowBgColor,
+                    borderLeft: isSpecialRow ? '4px solid #3b82f6' : 'none'
+                  }}
+                >
                   <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
                     <input
                       type="checkbox"
@@ -511,7 +569,54 @@ export default function VehiclesPage() {
                       style={{ width: '1rem', height: '1rem' }}
                     />
                   </td>
-                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#1e293b', fontWeight: '500' }}>{vehicle.shortId || vehicle.id}</td>
+                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#1e293b', fontWeight: '500' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {vehicle.shortId || vehicle.id}
+                      {/* Visual Indicators */}
+                      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                        {vehicle.isAccountantComplete && (
+                          <span 
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              padding: '0.125rem 0.375rem',
+                              backgroundColor: '#dcfce7',
+                              color: '#166534',
+                              borderRadius: '0.25rem',
+                              fontSize: '0.625rem',
+                              fontWeight: '600',
+                              border: '1px solid #86efac'
+                            }}
+                            title="Accountant marked as complete"
+                          >
+                            <CheckCircle style={{ width: '0.625rem', height: '0.625rem' }} />
+                            Accountant
+                          </span>
+                        )}
+                        {vehicle.hasDiscount && (
+                          <span 
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              padding: '0.125rem 0.375rem',
+                              backgroundColor: '#fef3c7',
+                              color: '#92400e',
+                              borderRadius: '0.25rem',
+                              fontSize: '0.625rem',
+                              fontWeight: '600',
+                              border: '1px solid #fde68a'
+                            }}
+                            title={`Discount: ₹${vehicle.discountAmount} (${vehicle.discountPercentage.toFixed(1)}%)`}
+                          >
+                            <Percent style={{ width: '0.625rem', height: '0.625rem' }} />
+                            Discount
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </td>
                   <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#1e293b' }}>
                     <div>
                       <div style={{ fontWeight: '500' }}>{vehicle.model}</div>
@@ -565,28 +670,44 @@ export default function VehiclesPage() {
                       }
                       
                       // Editable dropdown for other statuses
+                      // If accountant complete, highlight "Delivered" option prominently
                       return (
-                        <select
-                          value={vehicle.status}
-                          onChange={(e) => handleStatusUpdate(vehicle.id, e.target.value)}
-                          disabled={isUpdating}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '0.375rem',
-                            border: '1px solid #e2e8f0',
-                            fontSize: '0.75rem',
-                            backgroundColor: 'white',
-                            cursor: isUpdating ? 'not-allowed' : 'pointer',
-                            minWidth: '150px'
-                          }}
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="under_installation">Under Installation</option>
-                          <option value="installation_complete">Installation Complete</option>
-                          <option value="completed">Completed</option>
-                          <option value="delivered">Delivered</option>
-                        </select>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <select
+                            value={vehicle.status}
+                            onChange={(e) => handleStatusUpdate(vehicle.id, e.target.value)}
+                            disabled={isUpdating}
+                            style={{
+                              padding: '0.25rem 0.5rem',
+                              borderRadius: '0.375rem',
+                              border: vehicle.isAccountantComplete ? '2px solid #059669' : '1px solid #e2e8f0',
+                              fontSize: '0.75rem',
+                              backgroundColor: vehicle.isAccountantComplete ? '#f0fdf4' : 'white',
+                              cursor: isUpdating ? 'not-allowed' : 'pointer',
+                              minWidth: '150px',
+                              fontWeight: vehicle.isAccountantComplete ? '600' : '400'
+                            }}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="under_installation">Under Installation</option>
+                            <option value="installation_complete">Installation Complete</option>
+                            <option value="completed">Completed</option>
+                            <option value="delivered" style={{ fontWeight: 'bold', backgroundColor: '#dcfce7' }}>
+                              {vehicle.isAccountantComplete ? '✓ Mark as Delivered' : 'Delivered'}
+                            </option>
+                          </select>
+                          {vehicle.isAccountantComplete && (
+                            <div style={{ 
+                              fontSize: '0.625rem', 
+                              color: '#059669',
+                              fontStyle: 'italic',
+                              fontWeight: '500'
+                            }}>
+                              Ready to mark as Delivered
+                            </div>
+                          )}
+                        </div>
                       )
                     })()}
                   </td>
@@ -600,9 +721,37 @@ export default function VehiclesPage() {
                           <strong>Cost:</strong> ₹{vehicle.estimatedCost}
                         </div>
                       )}
+                      {vehicle.hasDiscount && (
+                        <div style={{ 
+                          fontSize: '0.75rem', 
+                          color: '#92400e',
+                          backgroundColor: '#fef3c7',
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '0.25rem',
+                          border: '1px solid #fde68a',
+                          fontWeight: '600'
+                        }}>
+                          <strong>Discount:</strong> ₹{vehicle.discountAmount} ({vehicle.discountPercentage.toFixed(1)}%)
+                          {vehicle.discountOfferedBy && ` by ${vehicle.discountOfferedBy}`}
+                        </div>
+                      )}
                       {vehicle.odometerReading && (
                         <div style={{ fontSize: '0.75rem' }}>
                           <strong>Odometer:</strong> {vehicle.odometerReading} km
+                        </div>
+                      )}
+                      {vehicle.isAccountantComplete && (
+                        <div style={{ 
+                          fontSize: '0.75rem', 
+                          color: '#166534',
+                          backgroundColor: '#dcfce7',
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '0.25rem',
+                          border: '1px solid #86efac',
+                          fontWeight: '600',
+                          marginTop: '0.25rem'
+                        }}>
+                          ✓ Ready for Delivery
                         </div>
                       )}
                     </div>
@@ -691,7 +840,8 @@ export default function VehiclesPage() {
                     })()}
                   </td>
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
         </table>

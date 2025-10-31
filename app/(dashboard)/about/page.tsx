@@ -1,5 +1,7 @@
 'use client'
 
+import Logo from '@/components/Logo'
+
 export default function AboutPage() {
   return (
     <div style={{ padding: '2rem', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
@@ -17,10 +19,8 @@ export default function AboutPage() {
           gap: '1.25rem'
         }}
       >
-        <div style={{ width: 80, height: 80, borderRadius: '0.75rem', border: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#f9fafb', flexShrink: 0 }}>
-          {/* Put your logo file at public/brand/logo.png */}
-          <img src="/brand/logo.png" alt="Zoravo OMS" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e: any) => { e.currentTarget.style.display = 'none' }} />
-          <div style={{ fontWeight: 800, color: '#111827' }}>Z</div>
+        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Logo size="large" showText={true} variant="dark" />
         </div>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>

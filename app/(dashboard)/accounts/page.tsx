@@ -31,6 +31,7 @@ interface AccountEntry {
   discountOfferedBy?: string
   discountReason?: string
   finalAmount?: number
+  invoiceNumber?: string // Invoice number from external platform
 }
 
 interface ProductDetail {
@@ -288,11 +289,12 @@ export default function AccountsPage() {
             }
           }
 
-          // Get discount data from notes field (stored as JSON)
+          // Get discount data and invoice number from notes field (stored as JSON)
           let discountAmount = 0
           let discountPercentage = 0
           let discountOfferedBy = ''
           let discountReason = ''
+          let invoiceNumber = ''
           
           if (v.notes) {
             try {
@@ -302,6 +304,10 @@ export default function AccountsPage() {
                 discountPercentage = notesData.discount.discount_percentage || (totalAmount > 0 ? (discountAmount / totalAmount) * 100 : 0)
                 discountOfferedBy = notesData.discount.discount_offered_by || ''
                 discountReason = notesData.discount.discount_reason || ''
+              }
+              // Get invoice number from notes
+              if (notesData.invoice_number) {
+                invoiceNumber = notesData.invoice_number
               }
             } catch {
               // If parsing fails, check if there's a direct discount_amount column
@@ -347,7 +353,8 @@ export default function AccountsPage() {
             discountPercentage: discountPercentage,
             discountOfferedBy: discountOfferedBy,
             discountReason: discountReason,
-            finalAmount: finalAmount
+            finalAmount: finalAmount,
+            invoiceNumber: invoiceNumber
           }
         })
 
@@ -402,6 +409,19 @@ export default function AccountsPage() {
             }
           }
 
+          // Get invoice number from notes field
+          let invoiceNumber = ''
+          if (v.notes) {
+            try {
+              const notesData = JSON.parse(v.notes)
+              if (notesData.invoice_number) {
+                invoiceNumber = notesData.invoice_number
+              }
+            } catch {
+              // If parsing fails, invoice number remains empty
+            }
+          }
+
           return {
             id: v.id,
             shortId: v.short_id || v.id.substring(0, 8),
@@ -421,7 +441,8 @@ export default function AccountsPage() {
             products: products,
             totalAmount: totalAmount,
             status: v.status,
-            created_at: v.created_at
+            created_at: v.created_at,
+            invoiceNumber: invoiceNumber
           }
         })
 
@@ -2152,6 +2173,36 @@ export default function AccountsPage() {
                         )}
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Invoice Number - Display for all users */}
+              {selectedEntry.invoiceNumber && (
+                <div style={{ marginBottom: '2rem' }}>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
+                    Invoice Number
+                  </h3>
+                  <div style={{ 
+                    backgroundColor: '#f0f9ff', 
+                    borderRadius: '0.75rem', 
+                    padding: '1.25rem',
+                    border: '1px solid #bae6fd'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
+                        Invoice Number (External Platform):
+                      </div>
+                      <div style={{ 
+                        fontSize: '1.125rem', 
+                        fontWeight: '700', 
+                        color: '#0c4a6e',
+                        letterSpacing: '0.05em'
+                      }}>
+                        {selectedEntry.invoiceNumber}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

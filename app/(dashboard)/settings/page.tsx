@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, User, Shield, Bell, Database, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car } from 'lucide-react'
+import { Settings, User, Shield, Bell, Database, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car, MessageSquare, Smartphone, ToggleLeft, ToggleRight, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import UserManagementModal from '@/components/UserManagementModal'
+import { whatsappService, type WhatsAppConfig } from '@/lib/whatsapp-service'
 
 export default function SettingsPage() {
   const supabase = createClient()
@@ -66,6 +67,29 @@ export default function SettingsPage() {
     confirmPassword: ''
   })
   const [changingPassword, setChangingPassword] = useState(false)
+
+  // WhatsApp Notification Settings
+  const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>({
+    enabled: false,
+    provider: 'messageautosender',
+    fromNumber: '',
+    accountSid: '',
+    authToken: '',
+    businessAccountId: '',
+    accessToken: '',
+    webhookUrl: '',
+    apiKey: '',
+    apiSecret: '',
+    userId: '',
+    password: '',
+  })
+  const [notificationPreferences, setNotificationPreferences] = useState<any[]>([])
+  const [messageTemplates, setMessageTemplates] = useState<any[]>([])
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null)
+  const [templateContent, setTemplateContent] = useState<Map<string, string>>(new Map())
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false)
+  const [loadingWhatsapp, setLoadingWhatsapp] = useState(false)
+  const [savingTemplates, setSavingTemplates] = useState(false)
   
   // Filter users by role
   const coordinators = users.filter(u => u.role === 'coordinator')
@@ -97,6 +121,9 @@ export default function SettingsPage() {
     fetchVehicleTypes()
     fetchDepartments()
     fetchSystemSettings()
+    fetchWhatsappSettings()
+    fetchNotificationPreferences()
+    fetchMessageTemplates()
   }, [])
 
   const loadCurrentUser = async () => {
@@ -237,6 +264,190 @@ export default function SettingsPage() {
       return names.length ? names.join(', ') : (value || '-')
     } catch {
       return value || '-'
+    }
+  }
+
+  const fetchWhatsappSettings = async () => {
+    try {
+      setLoadingWhatsapp(true)
+      const config = await whatsappService.loadConfig(supabase)
+      if (config) {
+        setWhatsappConfig(config)
+      }
+    } catch (error) {
+      console.error('Error loading WhatsApp settings:', error)
+    } finally {
+      setLoadingWhatsapp(false)
+    }
+  }
+
+  const fetchNotificationPreferences = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notification_preferences')
+        .select('*')
+      
+      if (error) throw error
+      
+      if (data && data.length > 0) {
+        setNotificationPreferences(data)
+      } else {
+        // Fetch all users to create default preferences
+        const { data: allUsersData } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('role', ['installer', 'coordinator', 'accountant', 'manager'])
+        
+        if (allUsersData && allUsersData.length > 0) {
+          const defaultPrefs = allUsersData.map((user: any) => ({
+            user_id: user.id,
+            role: user.role,
+            whatsapp_enabled: true,
+            phone_number: user.phone || '',
+            notify_on_vehicle_created: true,
+            notify_on_status_updated: true,
+            notify_on_installation_complete: true,
+            notify_on_invoice_added: true,
+            notify_on_accountant_complete: true,
+            notify_on_vehicle_delivered: true,
+          }))
+
+          if (defaultPrefs.length > 0) {
+            const { error: insertError } = await supabase
+              .from('notification_preferences')
+              .upsert(defaultPrefs, { onConflict: 'user_id,role' })
+            
+            if (!insertError) {
+              setNotificationPreferences(defaultPrefs as any)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching notification preferences:', error)
+    }
+  }
+
+  const fetchMessageTemplates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('message_templates')
+        .select('*')
+        .order('event_type')
+      
+      if (error) {
+        // If table doesn't exist or RLS error, use default templates
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.warn('Message templates table not found. Using default templates. Please run the database migration.')
+          loadDefaultTemplates()
+          return
+        }
+        throw error
+      }
+      
+      if (data && data.length > 0) {
+        setMessageTemplates(data)
+        const templateMap = new Map<string, string>()
+        data.forEach((template: any) => {
+          templateMap.set(template.event_type, template.template)
+        })
+        setTemplateContent(templateMap)
+      } else {
+        // Set default templates if none exist in database
+        loadDefaultTemplates()
+      }
+    } catch (error: any) {
+      console.error('Error fetching message templates:', error)
+      // On any error, load default templates so UI doesn't break
+      loadDefaultTemplates()
+    }
+  }
+
+  const loadDefaultTemplates = () => {
+    const defaultTemplates = [
+      { event_type: 'vehicle_inward_created', template: '🚗 *New Vehicle Entry*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nStatus: Pending\n\nPlease check the dashboard for details.' },
+      { event_type: 'installation_complete', template: '✅ *Installation Complete*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nAll products have been installed successfully.\n\nReady for accountant review.' },
+      { event_type: 'invoice_number_added', template: '🧾 *Invoice Number Added*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice number has been set by accountant.\n\nPlease check the dashboard for details.' },
+      { event_type: 'accountant_completed', template: '✓ *Accountant Completed*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice processing completed.\n\nReady for delivery.' },
+      { event_type: 'vehicle_delivered', template: '🎉 *Vehicle Delivered*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nVehicle has been marked as delivered.\n\nThank you for your work!' },
+    ]
+    setMessageTemplates(defaultTemplates as any)
+    const templateMap = new Map<string, string>()
+    defaultTemplates.forEach(t => templateMap.set(t.event_type, t.template))
+    setTemplateContent(templateMap)
+  }
+
+  const saveMessageTemplates = async () => {
+    try {
+      setSavingTemplates(true)
+
+      for (const [eventType, template] of templateContent.entries()) {
+        await supabase
+          .from('message_templates')
+          .upsert({ event_type: eventType, template: template }, { onConflict: 'event_type' })
+      }
+
+      alert('Message templates saved successfully!')
+      await fetchMessageTemplates()
+    } catch (error: any) {
+      console.error('Error saving message templates:', error)
+      alert(`Failed to save: ${error.message}`)
+    } finally {
+      setSavingTemplates(false)
+    }
+  }
+
+  const saveWhatsappSettings = async () => {
+    try {
+      setSavingWhatsapp(true)
+
+      const settings = [
+        { setting_key: 'whatsapp_enabled', setting_value: whatsappConfig.enabled.toString(), setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_provider', setting_value: whatsappConfig.provider, setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_user_id', setting_value: whatsappConfig.userId || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_password', setting_value: whatsappConfig.password || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_api_key', setting_value: whatsappConfig.apiKey || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_from_number', setting_value: whatsappConfig.fromNumber || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_account_sid', setting_value: whatsappConfig.accountSid || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_auth_token', setting_value: whatsappConfig.authToken || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_business_account_id', setting_value: whatsappConfig.businessAccountId || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_access_token', setting_value: whatsappConfig.accessToken || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_webhook_url', setting_value: whatsappConfig.webhookUrl || '', setting_group: 'whatsapp_notifications' },
+        { setting_key: 'whatsapp_api_secret', setting_value: whatsappConfig.apiSecret || '', setting_group: 'whatsapp_notifications' },
+      ]
+
+      for (const setting of settings) {
+        await supabase
+          .from('system_settings')
+          .upsert(setting, { onConflict: 'setting_key' })
+      }
+
+      // Initialize WhatsApp service with new config
+      await whatsappService.initialize(whatsappConfig)
+
+      // Reload settings to ensure UI shows saved values
+      await fetchWhatsappSettings()
+
+      alert('WhatsApp settings saved successfully!')
+    } catch (error: any) {
+      console.error('Error saving WhatsApp settings:', error)
+      alert(`Failed to save: ${error.message}`)
+    } finally {
+      setSavingWhatsapp(false)
+    }
+  }
+
+  const saveNotificationPreferences = async () => {
+    try {
+      for (const pref of notificationPreferences) {
+        await supabase
+          .from('notification_preferences')
+          .upsert(pref, { onConflict: 'user_id,role' })
+      }
+      alert('Notification preferences saved successfully!')
+    } catch (error: any) {
+      console.error('Error saving notification preferences:', error)
+      alert(`Failed to save: ${error.message}`)
     }
   }
 
@@ -2453,8 +2664,828 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* WhatsApp Notifications Tab */}
+          {activeTab === 'notifications' && userRole === 'admin' && (
+            <div style={{ padding: '2rem' }}>
+              <div style={{ marginBottom: '2rem' }}>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', marginBottom: '0.5rem' }}>
+                  WhatsApp Notifications
+                </h2>
+                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                  Configure WhatsApp notifications for workflow events
+                </p>
+              </div>
+
+              {/* WhatsApp Configuration */}
+              <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', padding: '2rem', marginBottom: '2rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <MessageSquare style={{ width: '1.25rem', height: '1.25rem' }} />
+                  WhatsApp Configuration
+                </h3>
+
+                {/* Enable/Disable Toggle */}
+                <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.25rem' }}>
+                      Enable WhatsApp Notifications
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      Turn on WhatsApp notifications for workflow events
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setWhatsappConfig({ ...whatsappConfig, enabled: !whatsappConfig.enabled })}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.5rem 1rem',
+                      backgroundColor: whatsappConfig.enabled ? '#059669' : '#9ca3af',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '0.5rem',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      fontWeight: '500'
+                    }}
+                  >
+                    {whatsappConfig.enabled ? (
+                      <>
+                        <ToggleRight style={{ width: '1.25rem', height: '1.25rem' }} />
+                        Enabled
+                      </>
+                    ) : (
+                      <>
+                        <ToggleLeft style={{ width: '1.25rem', height: '1.25rem' }} />
+                        Disabled
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {whatsappConfig.enabled && (
+                  <>
+                    {/* Provider Selection */}
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                        Provider
+                      </label>
+                      <select
+                        value={whatsappConfig.provider}
+                        onChange={(e) => setWhatsappConfig({ ...whatsappConfig, provider: e.target.value as any })}
+                        style={{
+                          width: '100%',
+                          padding: '0.75rem',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          outline: 'none'
+                        }}
+                      >
+                        <option value="messageautosender">MessageAutoSender</option>
+                        <option value="twilio">Twilio</option>
+                        <option value="cloud-api">WhatsApp Cloud API</option>
+                        <option value="custom">Custom Webhook</option>
+                      </select>
+                    </div>
+
+                    {/* MessageAutoSender Settings */}
+                    {whatsappConfig.provider === 'messageautosender' && (
+                      <>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            User ID <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={whatsappConfig.userId || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, userId: e.target.value })}
+                            placeholder="Your MessageAutoSender User ID"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Password <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={whatsappConfig.password || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, password: e.target.value })}
+                            placeholder="Your MessageAutoSender Password"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            API Key <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={whatsappConfig.apiKey || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, apiKey: e.target.value })}
+                            placeholder="Your MessageAutoSender API Key"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
+                            Get your API key from MessageAutoSender dashboard
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            API Endpoint URL (Optional)
+                          </label>
+                          <input
+                            type="url"
+                            value={whatsappConfig.webhookUrl || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, webhookUrl: e.target.value })}
+                            placeholder="https://app.messageautosender.com/api/whatsapp/send"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
+                            Leave empty to use default endpoint. Customize if your API endpoint is different.
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* From Number (not required for MessageAutoSender) */}
+                    {whatsappConfig.provider !== 'messageautosender' && (
+                      <div style={{ marginBottom: '1.5rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                          WhatsApp Number (From) <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                      <input
+                        type="text"
+                        value={whatsappConfig.fromNumber || ''}
+                        onChange={(e) => setWhatsappConfig({ ...whatsappConfig, fromNumber: e.target.value })}
+                        placeholder="+919876543210 (with country code)"
+                        style={{
+                          width: '100%',
+                          padding: '0.75rem',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          outline: 'none'
+                        }}
+                      />
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
+                          Format: +[country code][number] (e.g., +919876543210)
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Twilio Settings */}
+                    {whatsappConfig.provider === 'twilio' && (
+                      <>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Account SID <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={whatsappConfig.accountSid || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, accountSid: e.target.value })}
+                            placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Auth Token <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={whatsappConfig.authToken || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, authToken: e.target.value })}
+                            placeholder="Your Twilio Auth Token"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* WhatsApp Cloud API Settings */}
+                    {whatsappConfig.provider === 'cloud-api' && (
+                      <>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Business Account ID <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={whatsappConfig.businessAccountId || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, businessAccountId: e.target.value })}
+                            placeholder="Your WhatsApp Business Account ID"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Access Token <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={whatsappConfig.accessToken || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, accessToken: e.target.value })}
+                            placeholder="Your WhatsApp Access Token"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Custom Webhook Settings */}
+                    {whatsappConfig.provider === 'custom' && (
+                      <>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            Webhook URL <span style={{ color: '#ef4444' }}>*</span>
+                          </label>
+                          <input
+                            type="url"
+                            value={whatsappConfig.webhookUrl || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, webhookUrl: e.target.value })}
+                            placeholder="https://your-api.com/whatsapp/send"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            API Key (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={whatsappConfig.apiKey || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, apiKey: e.target.value })}
+                            placeholder="Your API Key"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '1.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                            API Secret (Optional)
+                          </label>
+                          <input
+                            type="password"
+                            value={whatsappConfig.apiSecret || ''}
+                            onChange={(e) => setWhatsappConfig({ ...whatsappConfig, apiSecret: e.target.value })}
+                            placeholder="Your API Secret"
+                            style={{
+                              width: '100%',
+                              padding: '0.75rem',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                      <button
+                        onClick={saveWhatsappSettings}
+                        disabled={savingWhatsapp}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: '#2563eb',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '0.5rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          cursor: savingWhatsapp ? 'not-allowed' : 'pointer',
+                          opacity: savingWhatsapp ? 0.7 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}
+                      >
+                        <Save style={{ width: '1rem', height: '1rem' }} />
+                        {savingWhatsapp ? 'Saving...' : 'Save Configuration'}
+                      </button>
+                      
+                      <button
+                        onClick={async () => {
+                          if (!whatsappConfig.enabled) {
+                            alert('Please enable WhatsApp notifications first')
+                            return
+                          }
+                          
+                          try {
+                            const { whatsappService } = await import('@/lib/whatsapp-service')
+                            const { notificationWorkflow } = await import('@/lib/notification-workflow')
+                            
+                            // Initialize with current config
+                            await whatsappService.initialize(whatsappConfig)
+                            
+                            // Send test notification to enabled users
+                            const enabledUsers = notificationPreferences.filter(p => p.whatsapp_enabled && p.phone_number)
+                            
+                            if (enabledUsers.length === 0) {
+                              alert('No users have WhatsApp notifications enabled. Please enable notifications for at least one user in the "Notification Preferences by Role" section.')
+                              return
+                            }
+                            
+                            const testEvent = {
+                              type: 'vehicle_inward_created' as const,
+                              vehicleId: 'test-vehicle-id',
+                              vehicleNumber: 'TEST-123',
+                              customerName: 'Test Customer',
+                            }
+                            
+                            const recipients = enabledUsers
+                              .filter(p => p.phone_number)
+                              .map(p => ({
+                                userId: p.user_id,
+                                role: p.role as any,
+                                phoneNumber: p.phone_number!,
+                                name: users.find(u => u.id === p.user_id)?.name || 'User'
+                              }))
+                            
+                            const result = await whatsappService.sendWorkflowNotification(testEvent, recipients, supabase)
+                            
+                            if (result.sent > 0) {
+                              alert(`✅ Test notification sent successfully!\n\nSent: ${result.sent}\nFailed: ${result.failed}\n\nCheck your browser console (F12) for detailed logs.`)
+                            } else {
+                              alert(`❌ Test notification failed!\n\nSent: ${result.sent}\nFailed: ${result.failed}\n\nErrors:\n${result.errors.join('\n')}\n\nCheck your browser console (F12) for detailed logs.`)
+                            }
+                          } catch (error: any) {
+                            console.error('Test notification error:', error)
+                            alert(`Failed to send test notification: ${error.message}\n\nCheck your browser console (F12) for details.`)
+                          }
+                        }}
+                        disabled={savingWhatsapp || !whatsappConfig.enabled}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: whatsappConfig.enabled ? '#059669' : '#9ca3af',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '0.5rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          cursor: (savingWhatsapp || !whatsappConfig.enabled) ? 'not-allowed' : 'pointer',
+                          opacity: (savingWhatsapp || !whatsappConfig.enabled) ? 0.7 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}
+                      >
+                        <MessageSquare style={{ width: '1rem', height: '1rem' }} />
+                        Send Test Notification
+                      </button>
+                    </div>
+                    
+                    <div style={{ 
+                      marginTop: '1rem', 
+                      padding: '0.75rem', 
+                      backgroundColor: '#fef3c7', 
+                      borderRadius: '0.5rem',
+                      border: '1px solid #fde68a',
+                      fontSize: '0.75rem',
+                      color: '#92400e'
+                    }}>
+                      <strong>💡 Tip:</strong> Click "Send Test Notification" to verify your configuration works. Check the browser console (F12) for detailed logs.
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Notification Preferences by Role */}
+              <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', padding: '2rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Smartphone style={{ width: '1.25rem', height: '1.25rem' }} />
+                  Notification Preferences by Role
+                </h3>
+
+                <div style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                  Configure which events trigger notifications for each role. Ensure users have phone numbers in their profiles.
+                </div>
+
+                {['installer', 'coordinator', 'accountant', 'manager'].map((role) => {
+                  const roleUsers = users.filter(u => u.role === role)
+                  return (
+                    <div key={role} style={{ marginBottom: '2rem', padding: '1.5rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem' }}>
+                      <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', textTransform: 'capitalize' }}>
+                        {role}s ({roleUsers.length})
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {roleUsers.map((user: any) => {
+                          const pref = notificationPreferences.find((p: any) => p.user_id === user.id && p.role === role) || {
+                            user_id: user.id,
+                            role: role,
+                            whatsapp_enabled: true,
+                            phone_number: user.phone || '',
+                            notify_on_vehicle_created: role === 'installer' || role === 'manager',
+                            notify_on_status_updated: false,
+                            notify_on_installation_complete: role !== 'installer',
+                            notify_on_invoice_added: role === 'manager',
+                            notify_on_accountant_complete: role === 'coordinator',
+                            notify_on_vehicle_delivered: role === 'manager',
+                          }
+
+                          return (
+                            <div key={user.id} style={{ padding: '1rem', backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                <div>
+                                  <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{user.name}</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                    Phone: {pref.phone_number || 'Not set'}
+                                  </div>
+                                </div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={pref.whatsapp_enabled}
+                                    onChange={(e) => {
+                                      const updated = notificationPreferences.map((p: any) =>
+                                        p.user_id === user.id && p.role === role
+                                          ? { ...p, whatsapp_enabled: e.target.checked }
+                                          : p
+                                      )
+                                      if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                        updated.push({ ...pref, whatsapp_enabled: e.target.checked })
+                                      }
+                                      setNotificationPreferences(updated)
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Enabled</span>
+                                </label>
+                              </div>
+                              {pref.whatsapp_enabled && (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', fontSize: '0.75rem' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={pref.notify_on_vehicle_created}
+                                      onChange={(e) => {
+                                        const updated = notificationPreferences.map((p: any) =>
+                                          p.user_id === user.id && p.role === role
+                                            ? { ...p, notify_on_vehicle_created: e.target.checked }
+                                            : p
+                                        )
+                                        if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                          updated.push({ ...pref, notify_on_vehicle_created: e.target.checked })
+                                        }
+                                        setNotificationPreferences(updated)
+                                      }}
+                                    />
+                                    <span>Vehicle Created</span>
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={pref.notify_on_installation_complete}
+                                      onChange={(e) => {
+                                        const updated = notificationPreferences.map((p: any) =>
+                                          p.user_id === user.id && p.role === role
+                                            ? { ...p, notify_on_installation_complete: e.target.checked }
+                                            : p
+                                        )
+                                        if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                          updated.push({ ...pref, notify_on_installation_complete: e.target.checked })
+                                        }
+                                        setNotificationPreferences(updated)
+                                      }}
+                                    />
+                                    <span>Installation Complete</span>
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={pref.notify_on_invoice_added}
+                                      onChange={(e) => {
+                                        const updated = notificationPreferences.map((p: any) =>
+                                          p.user_id === user.id && p.role === role
+                                            ? { ...p, notify_on_invoice_added: e.target.checked }
+                                            : p
+                                        )
+                                        if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                          updated.push({ ...pref, notify_on_invoice_added: e.target.checked })
+                                        }
+                                        setNotificationPreferences(updated)
+                                      }}
+                                    />
+                                    <span>Invoice Added</span>
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={pref.notify_on_accountant_complete}
+                                      onChange={(e) => {
+                                        const updated = notificationPreferences.map((p: any) =>
+                                          p.user_id === user.id && p.role === role
+                                            ? { ...p, notify_on_accountant_complete: e.target.checked }
+                                            : p
+                                        )
+                                        if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                          updated.push({ ...pref, notify_on_accountant_complete: e.target.checked })
+                                        }
+                                        setNotificationPreferences(updated)
+                                      }}
+                                    />
+                                    <span>Accountant Complete</span>
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={pref.notify_on_vehicle_delivered}
+                                      onChange={(e) => {
+                                        const updated = notificationPreferences.map((p: any) =>
+                                          p.user_id === user.id && p.role === role
+                                            ? { ...p, notify_on_vehicle_delivered: e.target.checked }
+                                            : p
+                                        )
+                                        if (!updated.find((p: any) => p.user_id === user.id && p.role === role)) {
+                                          updated.push({ ...pref, notify_on_vehicle_delivered: e.target.checked })
+                                        }
+                                        setNotificationPreferences(updated)
+                                      }}
+                                    />
+                                    <span>Vehicle Delivered</span>
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <button
+                  onClick={saveNotificationPreferences}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    backgroundColor: '#059669',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Save style={{ width: '1rem', height: '1rem' }} />
+                  Save Preferences
+                </button>
+              </div>
+
+              {/* Message Templates Editor */}
+              <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', padding: '2rem', marginTop: '2rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
+                  Notification Message Templates
+                </h3>
+
+                <div style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                  Customize notification messages for each workflow event. Use variables like <code style={{ backgroundColor: '#f3f4f6', padding: '0.125rem 0.25rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>{'{{vehicleNumber}}'}</code>, <code style={{ backgroundColor: '#f3f4f6', padding: '0.125rem 0.25rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>{'{{customerName}}'}</code>, etc.
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {[
+                    { event_type: 'vehicle_inward_created', label: 'Vehicle Inward Created', description: 'Sent when coordinator creates a new vehicle entry' },
+                    { event_type: 'installation_complete', label: 'Installation Complete', description: 'Sent when installer marks all products as complete' },
+                    { event_type: 'invoice_number_added', label: 'Invoice Number Added', description: 'Sent when accountant adds an invoice number' },
+                    { event_type: 'accountant_completed', label: 'Accountant Completed', description: 'Sent when accountant marks entry as complete' },
+                    { event_type: 'vehicle_delivered', label: 'Vehicle Delivered', description: 'Sent when coordinator marks vehicle as delivered' },
+                  ].map((templateInfo) => {
+                    const currentTemplate = templateContent.get(templateInfo.event_type) || ''
+                    const isEditing = editingTemplate === templateInfo.event_type
+
+                    return (
+                      <div key={templateInfo.event_type} style={{ padding: '1.5rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.25rem' }}>
+                            {templateInfo.label}
+                          </h4>
+                          <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>
+                            {templateInfo.description}
+                          </p>
+                        </div>
+                        
+                        {isEditing ? (
+                          <div>
+                            <textarea
+                              value={templateContent.get(templateInfo.event_type) || ''}
+                              onChange={(e) => {
+                                const updated = new Map(templateContent)
+                                updated.set(templateInfo.event_type, e.target.value)
+                                setTemplateContent(updated)
+                              }}
+                              rows={8}
+                              style={{
+                                width: '100%',
+                                padding: '0.75rem',
+                                border: '1px solid #2563eb',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.875rem',
+                                fontFamily: 'monospace',
+                                outline: 'none',
+                                resize: 'vertical'
+                              }}
+                              placeholder="Enter your message template here. Use {{variableName}} for dynamic values."
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                              <button
+                                onClick={() => {
+                                  setEditingTemplate(null)
+                                  // Revert to original
+                                  const updated = new Map(templateContent)
+                                  const original = messageTemplates.find((t: any) => t.event_type === templateInfo.event_type)
+                                  if (original) {
+                                    updated.set(templateInfo.event_type, original.template)
+                                  }
+                                  setTemplateContent(updated)
+                                }}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  backgroundColor: '#6b7280',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '0.375rem',
+                                  fontSize: '0.875rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => setEditingTemplate(null)}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  backgroundColor: '#2563eb',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '0.375rem',
+                                  fontSize: '0.875rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Done Editing
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{
+                              padding: '1rem',
+                              backgroundColor: 'white',
+                              borderRadius: '0.375rem',
+                              border: '1px solid #e2e8f0',
+                              fontSize: '0.875rem',
+                              whiteSpace: 'pre-wrap',
+                              fontFamily: 'monospace',
+                              color: '#374151',
+                              minHeight: '120px',
+                              marginBottom: '0.75rem'
+                            }}>
+                              {currentTemplate || 'No template set'}
+                            </div>
+                            <button
+                              onClick={() => setEditingTemplate(templateInfo.event_type)}
+                              style={{
+                                padding: '0.5rem 1rem',
+                                backgroundColor: 'transparent',
+                                color: '#2563eb',
+                                border: '1px solid #2563eb',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.875rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                              }}
+                            >
+                              <Edit style={{ width: '0.875rem', height: '0.875rem' }} />
+                              Edit Template
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <button
+                  onClick={saveMessageTemplates}
+                  disabled={savingTemplates}
+                  style={{
+                    marginTop: '1.5rem',
+                    padding: '0.75rem 1.5rem',
+                    backgroundColor: '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    cursor: savingTemplates ? 'not-allowed' : 'pointer',
+                    opacity: savingTemplates ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Save style={{ width: '1rem', height: '1rem' }} />
+                  {savingTemplates ? 'Saving Templates...' : 'Save All Templates'}
+                </button>
+
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f9ff', borderRadius: '0.5rem', border: '1px solid #bae6fd' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#0369a1', marginBottom: '0.5rem' }}>
+                    Available Variables:
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#0c4a6e', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.25rem' }}>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{vehicleNumber}}'}</code>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{customerName}}'}</code>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{vehicleId}}'}</code>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{status}}'}</code>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{recipientName}}'}</code>
+                    <code style={{ backgroundColor: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{'{{recipientRole}}'}</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Other tabs - placeholder */}
-          {activeTab !== 'management' && activeTab !== 'profile' && activeTab !== 'company' && (
+          {activeTab !== 'management' && activeTab !== 'profile' && activeTab !== 'company' && activeTab !== 'notifications' && (
             <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
               {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings coming soon...
             </div>

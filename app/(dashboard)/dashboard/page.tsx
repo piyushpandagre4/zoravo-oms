@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown } from 'lucide-react'
+import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown, Save, X, CheckCircle } from 'lucide-react'
 import { dbService, type DashboardKPIs, type Vehicle, type Invoice } from '@/lib/database-service'
 import { checkUserRole, canViewRevenue, type UserRole } from '@/lib/rbac'
 import DashboardCharts from '@/components/dashboard-charts'
 import VehicleDetailsModal from '@/components/VehicleDetailsModal'
 import { createClient } from '@/lib/supabase/client'
+import { notificationWorkflow } from '@/lib/notification-workflow'
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -35,6 +36,14 @@ export default function DashboardPage() {
     overdueAmount: number
   } | null>(null)
   const [isMobile, setIsMobile] = useState(false)
+  // Track product completion status: vehicleId -> productIndex -> completed
+  const [productCompletions, setProductCompletions] = useState<Map<string, Set<number>>>(new Map())
+  const [updatingProductStatus, setUpdatingProductStatus] = useState<Set<string>>(new Set())
+  // Track invoice numbers: vehicleId -> invoiceNumber
+  const [invoiceNumbers, setInvoiceNumbers] = useState<Map<string, string>>(new Map())
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
+  const [invoiceNumberInputs, setInvoiceNumberInputs] = useState<Map<string, string>>(new Map())
+  const [updatingInvoiceNumber, setUpdatingInvoiceNumber] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     loadDashboardData()
@@ -115,6 +124,12 @@ export default function DashboardPage() {
       setKpis(kpisData)
       setRecentVehicles(vehiclesData)
       setRecentInvoices(invoicesData)
+      
+      // Load product completion status from notes field
+      if (vehiclesData) {
+        loadProductCompletions(vehiclesData)
+      }
+      
       // Compute admin overview metrics from actual tables for accuracy
       await computeAdminMetrics()
     } catch (error) {
@@ -136,6 +151,261 @@ export default function DashboardPage() {
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadProductCompletions = (vehicles: Vehicle[]) => {
+    const completions = new Map<string, Set<number>>()
+    
+    vehicles.forEach((vehicle: any) => {
+      if (vehicle.notes) {
+        try {
+          const notesData = JSON.parse(vehicle.notes)
+          if (notesData.product_completions && Array.isArray(notesData.product_completions)) {
+            const completedIndices = new Set<number>()
+            notesData.product_completions.forEach((idx: number) => {
+              completedIndices.add(idx)
+            })
+            completions.set(vehicle.id, completedIndices)
+          }
+        } catch {
+          // If parsing fails, no completions
+        }
+      }
+    })
+    
+    setProductCompletions(completions)
+  }
+
+  // Load invoice numbers from invoices data
+  const loadInvoiceNumbers = async () => {
+    try {
+      const invoiceMap = new Map<string, string>()
+      
+      // Load invoice numbers from recent invoices (both real and preview)
+      for (const invoice of recentInvoices) {
+        const inward = (invoice as any).previewFromInward
+        if (inward) {
+          // This is a preview invoice from vehicle_inward
+          const vehicleId = inward.id
+          if (inward.notes) {
+            try {
+              const notesData = JSON.parse(inward.notes)
+              if (notesData.invoice_number) {
+                invoiceMap.set(vehicleId, notesData.invoice_number)
+              }
+            } catch {
+              // If parsing fails, no invoice number
+            }
+          }
+        } else {
+          // This is a real invoice, invoice number is already in invoice.invoice_number
+          // For real invoices, we don't need to store separately
+        }
+      }
+      
+      setInvoiceNumbers(invoiceMap)
+    } catch (error) {
+      console.error('Error loading invoice numbers:', error)
+    }
+  }
+
+  useEffect(() => {
+    if (recentInvoices.length > 0) {
+      loadInvoiceNumbers()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentInvoices.length])
+
+  const handleInvoiceNumberUpdate = async (vehicleId: string, invoiceNumber: string) => {
+    if (userRole !== 'accountant') return // Only accountants can update
+    
+    setUpdatingInvoiceNumber(prev => new Set(prev).add(vehicleId))
+    
+    try {
+      // Get vehicle data to update notes
+      const { data: vehicleData } = await supabase
+        .from('vehicle_inward')
+        .select('notes')
+        .eq('id', vehicleId)
+        .single()
+      
+      // Parse existing notes or create new object
+      let notesData: any = {}
+      if (vehicleData?.notes) {
+        try {
+          notesData = JSON.parse(vehicleData.notes)
+        } catch {
+          notesData = {}
+        }
+      }
+      
+      // Update invoice number
+      notesData.invoice_number = invoiceNumber.trim() || null
+      
+      // Update in database
+      const { error } = await supabase
+        .from('vehicle_inward')
+        .update({ 
+          notes: JSON.stringify(notesData),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', vehicleId)
+      
+      if (error) throw error
+      
+      // Send WhatsApp notification if invoice number was added
+      if (invoiceNumber.trim()) {
+        try {
+          const { data: vehicleData } = await supabase
+            .from('vehicle_inward')
+            .select('*')
+            .eq('id', vehicleId)
+            .single()
+          
+          if (vehicleData) {
+            await notificationWorkflow.notifyInvoiceAdded(vehicleId, vehicleData)
+          }
+        } catch (notifError) {
+          console.error('Error sending notification:', notifError)
+        }
+      }
+      
+      // Update local state
+      setInvoiceNumbers(prev => {
+        const updated = new Map(prev)
+        if (invoiceNumber.trim()) {
+          updated.set(vehicleId, invoiceNumber.trim())
+        } else {
+          updated.delete(vehicleId)
+        }
+        return updated
+      })
+      
+      setEditingInvoiceNumber(null)
+      setInvoiceNumberInputs(prev => {
+        const updated = new Map(prev)
+        updated.delete(vehicleId)
+        return updated
+      })
+      
+      // Refresh invoices to show updated invoice number
+      await loadDashboardData()
+      
+    } catch (error: any) {
+      console.error('Error updating invoice number:', error)
+      alert(`Failed to update invoice number: ${error.message}`)
+    } finally {
+      setUpdatingInvoiceNumber(prev => {
+        const updated = new Set(prev)
+        updated.delete(vehicleId)
+        return updated
+      })
+    }
+  }
+
+  const handleProductToggle = async (vehicleId: string, productIndex: number, totalProducts: number) => {
+    if (userRole !== 'installer') return // Only installers can toggle
+    
+    setUpdatingProductStatus(prev => new Set(prev).add(vehicleId))
+    
+    try {
+      // Get current completions
+      const currentCompletions = productCompletions.get(vehicleId) || new Set<number>()
+      const newCompletions = new Set(currentCompletions)
+      
+      // Toggle the product
+      if (newCompletions.has(productIndex)) {
+        newCompletions.delete(productIndex)
+      } else {
+        newCompletions.add(productIndex)
+      }
+      
+      // Get vehicle data to update notes
+      const { data: vehicleData } = await supabase
+        .from('vehicle_inward')
+        .select('notes')
+        .eq('id', vehicleId)
+        .single()
+      
+      // Parse existing notes or create new object
+      let notesData: any = {}
+      if (vehicleData?.notes) {
+        try {
+          notesData = JSON.parse(vehicleData.notes)
+        } catch {
+          notesData = {}
+        }
+      }
+      
+      // Update product completions
+      notesData.product_completions = Array.from(newCompletions).sort((a, b) => a - b)
+      
+      // Update in database
+      const { error } = await supabase
+        .from('vehicle_inward')
+        .update({ 
+          notes: JSON.stringify(notesData),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', vehicleId)
+      
+      if (error) throw error
+      
+      // Update local state
+      setProductCompletions(prev => {
+        const updated = new Map(prev)
+        updated.set(vehicleId, newCompletions)
+        return updated
+      })
+      
+      // If all products are completed, update status to installation_complete
+      if (newCompletions.size === totalProducts && totalProducts > 0) {
+        const { error: statusError } = await supabase
+          .from('vehicle_inward')
+          .update({ 
+            status: 'installation_complete',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', vehicleId)
+        
+        if (!statusError) {
+          // Update local vehicle status immediately
+          setRecentVehicles(prev => prev.map(v => 
+            v.id === vehicleId 
+              ? { ...v, status: 'installation_complete' }
+              : v
+          ))
+          
+          // Send WhatsApp notification
+          try {
+            const { data: vehicleData } = await supabase
+              .from('vehicle_inward')
+              .select('*')
+              .eq('id', vehicleId)
+              .single()
+            
+            if (vehicleData) {
+              await notificationWorkflow.notifyInstallationComplete(vehicleId, vehicleData)
+            }
+          } catch (notifError) {
+            console.error('Error sending notification:', notifError)
+            // Don't block the success message if notification fails
+          }
+          
+          alert('All products completed! Status updated to Installation Complete.')
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('Error updating product status:', error)
+      alert(`Failed to update product status: ${error.message}`)
+    } finally {
+      setUpdatingProductStatus(prev => {
+        const updated = new Set(prev)
+        updated.delete(vehicleId)
+        return updated
+      })
     }
   }
 
@@ -831,7 +1101,29 @@ export default function DashboardPage() {
                         backgroundColor: '#f9fafb',
                         borderRadius: '0.5rem'
                       }}>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Product Details</div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Product Details</span>
+                          {(() => {
+                            const accessories = (vehicle as any).accessories_requested
+                            if (!accessories) return null
+                            
+                            try {
+                              const products = JSON.parse(accessories)
+                              if (Array.isArray(products) && products.length > 0) {
+                                const completedIndices = productCompletions.get(vehicle.id) || new Set<number>()
+                                const completedCount = completedIndices.size
+                                if (userRole === 'installer' && completedCount > 0) {
+                                  return (
+                                    <span style={{ fontSize: '0.7rem', color: '#059669', fontWeight: '600' }}>
+                                      {completedCount}/{products.length} Completed
+                                    </span>
+                                  )
+                                }
+                              }
+                            } catch {}
+                            return null
+                          })()}
+                        </div>
                         <div style={{ fontSize: '0.875rem', color: '#111827' }}>
                           {(() => {
                             const accessories = (vehicle as any).accessories_requested
@@ -840,19 +1132,69 @@ export default function DashboardPage() {
                             try {
                               const products = JSON.parse(accessories)
                               if (Array.isArray(products) && products.length > 0) {
+                                const completedIndices = productCompletions.get(vehicle.id) || new Set<number>()
+                                const isInstaller = userRole === 'installer'
+                                const isUpdating = updatingProductStatus.has(vehicle.id)
+                                
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                    {products.map((product: any, idx: number) => (
-                                      <div key={idx} style={{ fontSize: '0.8125rem' }}>
-                                        <strong>{product.product || 'Product'}</strong>
-                                        {product.brand && ` - ${product.brand}`}
-                                        {product.department && (
-                                          <span style={{ color: '#6b7280', marginLeft: '0.5rem' }}>
-                                            ({departmentNames.get(product.department) || product.department})
+                                    {products.map((product: any, idx: number) => {
+                                      const isCompleted = completedIndices.has(idx)
+                                      const canToggle = isInstaller && !isUpdating && 
+                                        (vehicle.status === 'pending' || vehicle.status === 'in_progress' || vehicle.status === 'under_installation')
+                                      
+                                      return (
+                                        <div 
+                                          key={idx} 
+                                          style={{ 
+                                            fontSize: '0.8125rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            padding: '0.25rem 0',
+                                            opacity: isCompleted ? 0.7 : 1
+                                          }}
+                                        >
+                                          {isInstaller && (
+                                            <input
+                                              type="checkbox"
+                                              checked={isCompleted}
+                                              onChange={() => handleProductToggle(vehicle.id, idx, products.length)}
+                                              disabled={!canToggle}
+                                              style={{
+                                                width: '1rem',
+                                                height: '1rem',
+                                                cursor: canToggle ? 'pointer' : 'not-allowed',
+                                                flexShrink: 0
+                                              }}
+                                              title={canToggle ? 'Mark as completed' : 'Cannot edit'}
+                                            />
+                                          )}
+                                          <span style={{ 
+                                            textDecoration: isCompleted ? 'line-through' : 'none',
+                                            color: isCompleted ? '#9ca3af' : '#111827'
+                                          }}>
+                                            <strong>{product.product || 'Product'}</strong>
+                                            {product.brand && ` - ${product.brand}`}
+                                            {product.department && (
+                                              <span style={{ color: '#6b7280', marginLeft: '0.5rem' }}>
+                                                ({departmentNames.get(product.department) || product.department})
+                                              </span>
+                                            )}
                                           </span>
-                                        )}
-                                      </div>
-                                    ))}
+                                          {isCompleted && (
+                                            <span style={{ 
+                                              fontSize: '0.7rem', 
+                                              color: '#059669',
+                                              fontWeight: '600',
+                                              marginLeft: 'auto'
+                                            }}>
+                                              ✓
+                                            </span>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
                                   </div>
                                 )
                               }
@@ -1096,6 +1438,7 @@ export default function DashboardPage() {
                         <div style={{ fontSize: '1.125rem', fontWeight: '700', color: '#111827', marginBottom: '0.25rem' }}>
                           {invoice.vehicle?.customer?.name || inward?.customer_name || 'N/A'}
                         </div>
+                        {/* ID - Read-only, displays short_id or registration_number */}
                         <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
                           {invoice.invoice_number}
                         </div>
@@ -1182,6 +1525,158 @@ export default function DashboardPage() {
                             {formatDate(invoice.created_at)}
                           </div>
                         </div>
+                        {/* Invoice Number Field - Separate from ID, only for accountants */}
+                        {userRole === 'accountant' && inward && (
+                          <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>
+                              Invoice Number (External Platform)
+                            </div>
+                            {(() => {
+                              const inwardId = inward.id
+                              const isEditing = editingInvoiceNumber === inwardId
+                              const currentInvoiceNumber = invoiceNumbers.get(inwardId) || ''
+                              const isUpdating = updatingInvoiceNumber.has(inwardId)
+                              
+                              if (isEditing) {
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <input
+                                      type="text"
+                                      value={invoiceNumberInputs.get(inwardId) ?? currentInvoiceNumber}
+                                      onChange={(e) => {
+                                        setInvoiceNumberInputs(prev => {
+                                          const updated = new Map(prev)
+                                          updated.set(inwardId, e.target.value)
+                                          return updated
+                                        })
+                                      }}
+                                      placeholder="Enter invoice number from external platform"
+                                      autoFocus
+                                      disabled={isUpdating}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          const value = invoiceNumberInputs.get(inwardId) ?? currentInvoiceNumber
+                                          handleInvoiceNumberUpdate(inwardId, value)
+                                        } else if (e.key === 'Escape') {
+                                          setEditingInvoiceNumber(null)
+                                          setInvoiceNumberInputs(prev => {
+                                            const updated = new Map(prev)
+                                            updated.delete(inwardId)
+                                            return updated
+                                          })
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '0.5rem',
+                                        border: '1px solid #2563eb',
+                                        borderRadius: '0.375rem',
+                                        fontSize: '0.875rem',
+                                        flex: 1,
+                                        outline: 'none',
+                                        backgroundColor: 'white'
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const value = invoiceNumberInputs.get(inwardId) ?? currentInvoiceNumber
+                                        handleInvoiceNumberUpdate(inwardId, value)
+                                      }}
+                                      disabled={isUpdating}
+                                      style={{
+                                        padding: '0.5rem',
+                                        backgroundColor: '#059669',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '0.375rem',
+                                        cursor: isUpdating ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem'
+                                      }}
+                                      title="Save"
+                                    >
+                                      <Save style={{ width: '0.875rem', height: '0.875rem' }} />
+                                      {isUpdating ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingInvoiceNumber(null)
+                                        setInvoiceNumberInputs(prev => {
+                                          const updated = new Map(prev)
+                                          updated.delete(inwardId)
+                                          return updated
+                                        })
+                                      }}
+                                      disabled={isUpdating}
+                                      style={{
+                                        padding: '0.5rem',
+                                        backgroundColor: '#6b7280',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '0.375rem',
+                                        cursor: isUpdating ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                      }}
+                                      title="Cancel"
+                                    >
+                                      <X style={{ width: '0.875rem', height: '0.875rem' }} />
+                                    </button>
+                                  </div>
+                                )
+                              } else {
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <div 
+                                      style={{ 
+                                        fontSize: '0.875rem', 
+                                        color: currentInvoiceNumber ? '#111827' : '#9ca3af',
+                                        padding: '0.5rem',
+                                        backgroundColor: '#f9fafb',
+                                        borderRadius: '0.375rem',
+                                        border: '1px solid #e5e7eb',
+                                        flex: 1,
+                                        minHeight: '2.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                      }}
+                                    >
+                                      {currentInvoiceNumber || 'No invoice number set'}
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        setEditingInvoiceNumber(inwardId)
+                                        setInvoiceNumberInputs(prev => {
+                                          const updated = new Map(prev)
+                                          updated.set(inwardId, currentInvoiceNumber)
+                                          return updated
+                                        })
+                                      }}
+                                      disabled={isUpdating}
+                                      style={{
+                                        padding: '0.5rem 1rem',
+                                        backgroundColor: 'transparent',
+                                        border: '1px solid #2563eb',
+                                        color: '#2563eb',
+                                        borderRadius: '0.375rem',
+                                        fontSize: '0.875rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        fontWeight: '500'
+                                      }}
+                                      title="Add or edit invoice number"
+                                    >
+                                      <Edit style={{ width: '0.875rem', height: '0.875rem' }} />
+                                      {currentInvoiceNumber ? 'Edit' : 'Add'}
+                                    </button>
+                                  </div>
+                                )
+                              }
+                            })()}
+                          </div>
+                        )}
                       </div>
 
                       {/* Product Details */}
@@ -1211,6 +1706,96 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Accountant Actions - Mark as Complete */}
+                      {userRole === 'accountant' && inward && (() => {
+                        const inwardId = inward.id
+                        const currentInvoiceNumber = invoiceNumbers.get(inwardId) || ''
+                        const hasInvoiceNumber = currentInvoiceNumber && currentInvoiceNumber.trim() !== ''
+                        const isInstallationComplete = invoice.status === 'installation_complete' || invoice.status === 'installation complete'
+                        const isCompleted = invoice.status === 'completed'
+                        const isUpdating = updatingInvoiceNumber.has(inwardId)
+                        
+                        // Show mark complete button only for installation_complete status with invoice number set
+                        if (isInstallationComplete && hasInvoiceNumber && !isCompleted) {
+                          return (
+                            <div style={{
+                              marginTop: '1rem',
+                              padding: '1rem',
+                              backgroundColor: '#f0fdf4',
+                              borderRadius: '0.5rem',
+                              border: '1px solid #86efac'
+                            }}>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm('Mark this entry as Complete? This will finalize the accountant\'s work.')) {
+                                    return
+                                  }
+                                  
+                                  setUpdatingInvoiceNumber(prev => new Set(prev).add(inwardId))
+                                  
+                                  try {
+                                    const { error } = await supabase
+                                      .from('vehicle_inward')
+                                      .update({ status: 'completed' })
+                                      .eq('id', inwardId)
+                                    
+                                    if (error) throw error
+                                    
+                                    // Send WhatsApp notification
+                                    try {
+                                      const { data: vehicleData } = await supabase
+                                        .from('vehicle_inward')
+                                        .select('*')
+                                        .eq('id', inwardId)
+                                        .single()
+                                      
+                                      if (vehicleData) {
+                                        await notificationWorkflow.notifyAccountantComplete(inwardId, vehicleData)
+                                      }
+                                    } catch (notifError) {
+                                      console.error('Error sending notification:', notifError)
+                                    }
+                                    
+                                    alert('Entry marked as Complete!')
+                                    await loadDashboardData()
+                                  } catch (error: any) {
+                                    console.error('Error marking as complete:', error)
+                                    alert(`Failed to mark as complete: ${error.message}`)
+                                  } finally {
+                                    setUpdatingInvoiceNumber(prev => {
+                                      const updated = new Set(prev)
+                                      updated.delete(inwardId)
+                                      return updated
+                                    })
+                                  }
+                                }}
+                                disabled={isUpdating}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.75rem 1rem',
+                                  backgroundColor: '#059669',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '0.5rem',
+                                  fontSize: '0.875rem',
+                                  fontWeight: '600',
+                                  cursor: isUpdating ? 'not-allowed' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '0.5rem',
+                                  opacity: isUpdating ? 0.7 : 1
+                                }}
+                              >
+                                <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                                {isUpdating ? 'Marking...' : 'Mark as Complete'}
+                              </button>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
                     </div>
                   </div>
                 )

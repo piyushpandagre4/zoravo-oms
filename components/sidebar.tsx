@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { LayoutDashboard, Car, Truck, Activity, DollarSign, Settings, Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import Logo from '@/components/Logo'
 
 interface SidebarProps {
   userRole: UserRole
@@ -114,10 +115,21 @@ export default function Sidebar({ userRole }: SidebarProps) {
       {/* Logo */}
       <div style={{ 
         padding: isMobile ? '1rem' : '1.5rem', 
-        borderBottom: '1px solid rgba(255,255,255,0.1)'
+        borderBottom: '1px solid rgba(255,255,255,0.1)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem'
       }}>
-        <div style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: '700', color: 'white', marginBottom: isMobile ? 0 : '0.25rem', textAlign: isMobile ? 'center' : 'left' }}>
-          {isMobile ? 'ZO' : 'Zoravo OMS'}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: isMobile ? 'center' : 'flex-start' 
+        }}>
+          {isMobile ? (
+            <Logo size="small" showText={false} variant="light" />
+          ) : (
+            <Logo size="medium" showText={true} variant="light" />
+          )}
         </div>
         {!isMobile && (
           <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>

@@ -211,6 +211,36 @@ export default function VehicleDetailsModal({ vehicle, onClose, onUpdate }: Vehi
   const statusColor = statusColors[currentStatus as keyof typeof statusColors] || { bg: '#f1f5f9', text: '#64748b' }
   const priorityColor = priorityColors[currentPriority as keyof typeof priorityColors] || { bg: '#f1f5f9', text: '#64748b' }
 
+  // Helper function to format notes (handles JSON parsing)
+  const formatNotes = (notes: string): string => {
+    try {
+      const parsed = JSON.parse(notes)
+      if (typeof parsed === 'object' && parsed !== null) {
+        // Format JSON object into readable text
+        const formatObject = (obj: any, indent = 0): string => {
+          let result = ''
+          for (const [key, value] of Object.entries(obj)) {
+            const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+              result += `${'  '.repeat(indent)}${formattedKey}:\n`
+              result += formatObject(value, indent + 1)
+            } else if (Array.isArray(value)) {
+              result += `${'  '.repeat(indent)}${formattedKey}: ${value.join(', ')}\n`
+            } else {
+              const displayValue = value === '' ? '(Empty)' : value
+              result += `${'  '.repeat(indent)}${formattedKey}: ${displayValue}\n`
+            }
+          }
+          return result
+        }
+        return formatObject(parsed).trim()
+      }
+    } catch {
+      // If not valid JSON, use as-is
+    }
+    return notes
+  }
+
   return (
     <div style={{
       position: 'fixed',
@@ -499,6 +529,51 @@ export default function VehicleDetailsModal({ vehicle, onClose, onUpdate }: Vehi
             </div>
           )}
 
+          {/* Invoice Number - Display for all users if exists */}
+          {(() => {
+            let invoiceNumber = ''
+            if (vehicle.notes) {
+              try {
+                const notesData = JSON.parse(vehicle.notes)
+                if (notesData.invoice_number) {
+                  invoiceNumber = notesData.invoice_number
+                }
+              } catch {
+                // If parsing fails, invoice number remains empty
+              }
+            }
+            
+            if (invoiceNumber) {
+              return (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <DollarSign style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                    Invoice Number
+                  </h3>
+                  <div style={{ 
+                    backgroundColor: '#f0f9ff', 
+                    padding: '1rem', 
+                    borderRadius: '0.5rem',
+                    borderLeft: '4px solid #0284c7'
+                  }}>
+                    <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.5rem', fontWeight: '600' }}>
+                      Invoice Number (External Platform):
+                    </div>
+                    <div style={{ 
+                      fontSize: '1.125rem', 
+                      fontWeight: '700', 
+                      color: '#0c4a6e',
+                      letterSpacing: '0.05em'
+                    }}>
+                      {invoiceNumber}
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+            return null
+          })()}
+
           {/* Issues and Notes */}
           {(vehicle.issues_reported || vehicle.notes) && (
             <div style={{ marginBottom: '1.5rem' }}>
@@ -521,7 +596,7 @@ export default function VehicleDetailsModal({ vehicle, onClose, onUpdate }: Vehi
                     Notes:
                   </strong>
                   <p style={{ margin: 0, fontSize: '0.875rem', color: '#1e40af', whiteSpace: 'pre-wrap' }}>
-                    {vehicle.notes}
+                    {formatNotes(vehicle.notes)}
                   </p>
                 </div>
               )}

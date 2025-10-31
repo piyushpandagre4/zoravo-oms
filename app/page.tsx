@@ -17,6 +17,7 @@ import {
   Settings,
   FileText
 } from 'lucide-react'
+import Logo from '@/components/Logo'
 
 export default function LandingPage() {
   const [loading, setLoading] = useState(false)
@@ -118,24 +119,8 @@ export default function LandingPage() {
           justifyContent: 'space-between',
           alignItems: 'center'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{
-              width: '2.5rem',
-              height: '2.5rem',
-              borderRadius: '0.5rem',
-              background: '#f9fafb',
-              border: '1px solid #e5e7eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden'
-            }}>
-              <img src="/brand/logo.png" alt="Zoravo OMS" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e:any)=>{e.currentTarget.style.display='none'}} />
-              <Car style={{ color: '#2563eb', width: '1.25rem', height: '1.25rem' }} />
-            </div>
-            <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937' }}>
-              Zoravo OMS
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Logo size="medium" showText={true} variant="dark" />
           </div>
           
           <button

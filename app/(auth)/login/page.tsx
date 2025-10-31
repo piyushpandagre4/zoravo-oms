@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Car, AlertCircle } from 'lucide-react'
+import Logo from '@/components/Logo'
 
 export default function LoginPage() {
   return (
@@ -170,29 +171,12 @@ function LoginContent() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{
-            height: '4rem',
-            width: '4rem',
-            margin: '0 auto 1.5rem auto',
             display: 'flex',
-            alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
+            marginBottom: '1.5rem'
           }}>
-            <Car style={{ color: 'white', height: '2rem', width: '2rem' }} />
+            <Logo size="large" showText={true} variant="dark" />
           </div>
-          <h1 style={{
-            fontSize: '2.25rem',
-            fontWeight: 'bold',
-            background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            margin: '0 0 0.5rem 0'
-          }}>
-            ZORAVO OMS
-          </h1>
           <p style={{
             fontSize: '1.125rem',
             color: '#6b7280',

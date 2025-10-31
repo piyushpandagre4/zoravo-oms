@@ -556,6 +556,7 @@ class DatabaseService {
           assigned_installer_id: inward.assigned_installer_id,
           location_id: inward.location_id,
           estimated_completion_date: inward.estimated_completion_date,
+          notes: inward.notes, // Include notes for product completion tracking
           created_at: inward.created_at,
           updated_at: inward.updated_at
         }))
@@ -592,16 +593,23 @@ class DatabaseService {
 
       const realInvoices: Invoice[] = invoices || []
 
-      // 2) Fetch recent vehicles marked installation_complete (invoice-ready previews)
-      const { data: inwardReady } = await this.supabase
+      // 2) Fetch ALL recent vehicle_inward entries to show in Recent Invoices tab (with prices)
+      // This allows accountant to see all entries immediately after Vehicle Inward Form is filled
+      const { data: allInwardEntriesRaw } = await this.supabase
         .from('vehicle_inward')
         .select('*')
-        .eq('status', 'installation_complete')
-        .order('updated_at', { ascending: false })
-        .limit(limit * 2)
+        .order('created_at', { ascending: false })
+        .limit(limit * 3)
 
-      // Map invoice-ready entries into lightweight invoice-like rows
-      const previewInvoices: Invoice[] = (inwardReady || []).map((v: any) => {
+      // Filter out only final/delivered statuses - include all active entries (pending, in_progress, etc.)
+      const finalStatuses = ['completed', 'complete_and_delivered', 'delivered', 'delivered_final', 'delivered (final)']
+      const allInwardEntries = (allInwardEntriesRaw || []).filter((entry: any) => {
+        const status = (entry.status || '').toLowerCase().trim()
+        return !finalStatuses.some(finalStatus => status === finalStatus.toLowerCase().trim())
+      })
+
+      // Map all inward entries into lightweight invoice-like rows with product prices
+      const previewInvoices: Invoice[] = (allInwardEntries || []).map((v: any) => {
         // Compute total based on accessories_requested JSON
         let totalAmount = 0
         let parsedProducts: Array<{ product: string; brand?: string; price: number; department?: string }> = []
@@ -629,20 +637,42 @@ class DatabaseService {
           },
         }
 
+        // Get status description based on current status
+        const statusDescriptions: Record<string, string> = {
+          'pending': 'Pending - awaiting invoice',
+          'in_progress': 'In Progress - awaiting invoice',
+          'under_installation': 'Under Installation - awaiting invoice',
+          'installation_complete': 'Installation complete - awaiting invoice',
+        }
+        const statusDesc = statusDescriptions[v.status] || `${v.status} - awaiting invoice`
+
+        // Get invoice number from notes if available, otherwise use short_id or registration_number
+        let invoiceNumber = v.short_id || (v.registration_number ?? 'PENDING')
+        if (v.notes) {
+          try {
+            const notesData = JSON.parse(v.notes)
+            if (notesData.invoice_number) {
+              invoiceNumber = notesData.invoice_number
+            }
+          } catch {
+            // If parsing fails, use default
+          }
+        }
+
         const pseudo: Invoice = {
           id: `vi_${v.id}`,
           vehicle_id: v.vehicle_id || v.id,
           work_order_id: undefined,
-          invoice_number: v.short_id || (v.registration_number ?? 'PENDING'),
+          invoice_number: invoiceNumber,
           amount: totalAmount,
           tax_amount: 0,
           total_amount: totalAmount,
-          status: 'installation_complete', // invoice-ready from inward entry
+          status: v.status || 'pending', // Use actual status from vehicle_inward
           due_date: undefined,
           paid_date: undefined,
           payment_method: undefined,
-          description: 'Installation complete - awaiting invoice',
-          created_at: v.updated_at || v.created_at,
+          description: statusDesc,
+          created_at: v.created_at, // Use created_at so newest entries appear first
           updated_at: v.updated_at || v.created_at,
           vehicle: pseudoVehicle,
           previewFromInward: v,

@@ -237,6 +237,15 @@ export default function VehicleInwardPage() {
         throw error
       }
       
+      // Send WhatsApp notification
+      try {
+        const { notificationWorkflow } = await import('@/lib/notification-workflow')
+        await notificationWorkflow.notifyVehicleCreated(data.id, { ...payload, id: data.id })
+      } catch (notifError) {
+        console.error('Error sending notification:', notifError)
+        // Don't block success if notification fails
+      }
+      
       alert('Vehicle inward submitted successfully!')
       router.push('/inward')
       

@@ -22,9 +22,10 @@ export default function Topbar({ userRole, userName, userEmail }: TopbarProps) {
 
   useEffect(() => {
     loadUserInfo()
-    loadNotifications()
+    // loadNotifications() // DISABLED FOR NOW
     
-    // Set up real-time subscription for notifications
+    // Set up real-time subscription for notifications - DISABLED FOR NOW
+    /*
     const channel = supabase
       .channel('notifications-changes')
       .on('postgres_changes', 
@@ -34,6 +35,7 @@ export default function Topbar({ userRole, userName, userEmail }: TopbarProps) {
         }
       )
       .subscribe()
+    */
 
     // Set up subscription for profile updates
     const profileChannel = supabase
@@ -47,7 +49,7 @@ export default function Topbar({ userRole, userName, userEmail }: TopbarProps) {
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      // supabase.removeChannel(channel) // DISABLED FOR NOW
       supabase.removeChannel(profileChannel)
     }
   }, [])
@@ -174,176 +176,180 @@ export default function Topbar({ userRole, userName, userEmail }: TopbarProps) {
 
       {/* Right side */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        {/* Notifications */}
-        <div style={{ position: 'relative' }}>
-          <button 
-            onClick={() => setShowNotifications(!showNotifications)}
-            style={{
-              padding: '0.5rem',
-              backgroundColor: '#f9fafb',
-              border: '1px solid #e5e7eb',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#f3f4f6'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#f9fafb'
-            }}
-          >
-            <Bell style={{ width: '1.25rem', height: '1.25rem', color: '#6b7280' }} />
-            {unreadCount > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: '0.25rem',
-                right: '0.25rem',
-                width: '0.5rem',
-                height: '0.5rem',
-                backgroundColor: '#ef4444',
-                borderRadius: '50%',
-                border: '2px solid white',
-                animation: unreadCount > 0 ? 'pulse 2s infinite' : 'none'
-              }}></span>
-            )}
-          </button>
-
-          {/* Notifications Dropdown */}
-          {showNotifications && (
-            <div style={{
-              position: 'absolute',
-              top: 'calc(100% + 0.5rem)',
-              right: '0',
-              width: '400px',
-              maxHeight: '500px',
-              backgroundColor: 'white',
-              border: '1px solid #e5e7eb',
-              borderRadius: '0.75rem',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
-              zIndex: 1000,
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              {/* Header */}
-              <div style={{
-                padding: '1rem',
-                borderBottom: '1px solid #e5e7eb',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#111827' }}>
-                  Notifications {unreadCount > 0 && `(${unreadCount})`}
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {unreadCount > 0 && (
-                    <button
-                      onClick={handleMarkAllAsRead}
-                      style={{
-                        padding: '0.25rem 0.5rem',
-                        backgroundColor: '#f3f4f6',
-                        border: 'none',
-                        borderRadius: '0.375rem',
-                        fontSize: '0.75rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.25rem'
-                      }}
-                    >
-                      <CheckCheck style={{ width: '0.875rem', height: '0.875rem' }} />
-                      Mark all read
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setShowNotifications(false)}
-                    style={{
-                      padding: '0.25rem',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <X style={{ width: '1rem', height: '1rem', color: '#6b7280' }} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Notifications List */}
-              <div style={{ overflowY: 'auto', flex: 1 }}>
-                {notifications.length === 0 ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
-                    No notifications
-                  </div>
-                ) : (
-                  notifications.map((notification) => (
-                    <div
-                      key={notification.id}
-                      style={{
-                        padding: '1rem',
-                        borderBottom: '1px solid #f3f4f6',
-                        backgroundColor: notification.read ? 'white' : '#fef3f3',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = notification.read ? '#f9fafb' : '#fee2e2'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = notification.read ? 'white' : '#fef3f3'
-                      }}
-                      onClick={() => {
-                        if (notification.action_url) {
-                          window.location.href = notification.action_url
-                        }
-                        if (!notification.read) {
-                          handleMarkAsRead(notification.id)
-                        }
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                        <div style={{ fontWeight: notification.read ? '500' : '600', fontSize: '0.875rem', color: '#111827' }}>
-                          {notification.title}
-                        </div>
-                        {!notification.read && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleMarkAsRead(notification.id)
-                            }}
-                            style={{
-                              padding: '0.125rem 0.25rem',
-                              backgroundColor: '#f3f4f6',
-                              border: 'none',
-                              borderRadius: '0.25rem',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Check style={{ width: '0.75rem', height: '0.75rem', color: '#059669' }} />
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
-                        {notification.message}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>
-                        {new Date(notification.created_at).toLocaleDateString()} {new Date(notification.created_at).toLocaleTimeString()}
-                      </div>
-                    </div>
-                  ))
+        {/* Notifications - DISABLED FOR NOW - Set ENABLE_NOTIFICATIONS to true to re-enable */}
+        {false && (() => {
+          const ENABLE_NOTIFICATIONS = false // Set to true to enable notifications
+          if (!ENABLE_NOTIFICATIONS) return null
+          
+          return (
+            <div style={{ position: 'relative' }}>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                style={{
+                  padding: '0.5rem',
+                  backgroundColor: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.5rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                }}
+              >
+                <Bell style={{ width: '1.25rem', height: '1.25rem', color: '#6b7280' }} />
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '0.25rem',
+                    right: '0.25rem',
+                    width: '0.5rem',
+                    height: '0.5rem',
+                    backgroundColor: '#ef4444',
+                    borderRadius: '50%',
+                    border: '2px solid white',
+                    animation: unreadCount > 0 ? 'pulse 2s infinite' : 'none'
+                  }}></span>
                 )}
-              </div>
+              </button>
+
+              {showNotifications && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 0.5rem)',
+                  right: '0',
+                  width: '400px',
+                  maxHeight: '500px',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.75rem',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                  zIndex: 1000,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}>
+                  <div style={{
+                    padding: '1rem',
+                    borderBottom: '1px solid #e5e7eb',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#111827' }}>
+                      Notifications {unreadCount > 0 && `(${unreadCount})`}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={handleMarkAllAsRead}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: '#f3f4f6',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                          }}
+                        >
+                          <CheckCheck style={{ width: '0.875rem', height: '0.875rem' }} />
+                          Mark all read
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowNotifications(false)}
+                        style={{
+                          padding: '0.25rem',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <X style={{ width: '1rem', height: '1rem', color: '#6b7280' }} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ overflowY: 'auto', flex: 1 }}>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                        No notifications
+                      </div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          style={{
+                            padding: '1rem',
+                            borderBottom: '1px solid #f3f4f6',
+                            backgroundColor: notification.read ? 'white' : '#fef3f3',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = notification.read ? '#f9fafb' : '#fee2e2'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = notification.read ? 'white' : '#fef3f3'
+                          }}
+                          onClick={() => {
+                            if (notification.action_url) {
+                              window.location.href = notification.action_url
+                            }
+                            if (!notification.read) {
+                              handleMarkAsRead(notification.id)
+                            }
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <div style={{ fontWeight: notification.read ? '500' : '600', fontSize: '0.875rem', color: '#111827' }}>
+                              {notification.title}
+                            </div>
+                            {!notification.read && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleMarkAsRead(notification.id)
+                                }}
+                                style={{
+                                  padding: '0.125rem 0.25rem',
+                                  backgroundColor: '#f3f4f6',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <Check style={{ width: '0.75rem', height: '0.75rem', color: '#059669' }} />
+                              </button>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
+                            {notification.message}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>
+                            {new Date(notification.created_at).toLocaleDateString()} {new Date(notification.created_at).toLocaleTimeString()}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          )
+        })()}
 
         {/* User Profile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem', paddingRight: '1.5rem', borderRadius: '0.5rem', backgroundColor: '#f9fafb' }}>
