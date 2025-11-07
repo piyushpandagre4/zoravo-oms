@@ -1308,7 +1308,10 @@ export default function SubscriptionManagementPage() {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleApplySubscriptionPlan(sub.tenant_id, sub.plan_request, approvedProof.id)}
+                      onClick={() => {
+                        if (!sub.plan_request) return
+                        handleApplySubscriptionPlan(sub.tenant_id, sub.plan_request, approvedProof.id)
+                      }}
                       style={{
                         padding: '0.75rem 1.5rem',
                         backgroundColor: '#2563eb',
