@@ -504,7 +504,7 @@ export default function PlatformSettingsPage() {
                   width: '100%',
                   padding: '0.75rem',
                   border: '1px solid #d1d5db',
-                    borderRadius: '0.5rem',
+                  borderRadius: '0.5rem',
                     fontSize: '0.875rem',
                     backgroundColor: 'white'
                   }}
@@ -514,18 +514,18 @@ export default function PlatformSettingsPage() {
                   <option value="EUR">EUR (€)</option>
                 </select>
               </div>
-            </div>
           </div>
+        </div>
 
           {/* Subscription Plans Management */}
           <div>
             <div style={{ marginBottom: '1rem' }}>
               <h3 style={{
                 fontSize: '1rem',
-                fontWeight: '600',
-                color: '#1f2937',
-                display: 'flex',
-                alignItems: 'center',
+            fontWeight: '600',
+            color: '#1f2937',
+            display: 'flex',
+            alignItems: 'center',
                 gap: '0.5rem',
                 marginBottom: '0.5rem'
               }}>
@@ -701,14 +701,14 @@ export default function PlatformSettingsPage() {
                           }}
                         />
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
+              <input
+                type="checkbox"
                             checked={newPlan.max_storage_gb === -1}
                             onChange={(e) => setNewPlan({ ...newPlan, max_storage_gb: e.target.checked ? -1 : 5 })}
                             style={{ width: '0.875rem', height: '0.875rem' }}
                           />
                           <span>Unlimited</span>
-                        </label>
+            </label>
                       </div>
                     </div>
                   </div>
@@ -768,7 +768,10 @@ export default function PlatformSettingsPage() {
                     </div>
                     {(() => {
                       const features = newPlan.features
-                      return features && Array.isArray(features) && features.length > 0 && (
+                      if (!features || !Array.isArray(features) || features.length === 0) {
+                        return null
+                      }
+                      return (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {features.map((feature, idx) => (
                           <span
@@ -779,8 +782,8 @@ export default function PlatformSettingsPage() {
                               color: '#1e40af',
                               borderRadius: '0.375rem',
                               fontSize: '0.75rem',
-                              display: 'flex',
-                              alignItems: 'center',
+              display: 'flex',
+              alignItems: 'center',
                               gap: '0.5rem'
                             }}
                           >
@@ -817,16 +820,16 @@ export default function PlatformSettingsPage() {
                 {/* Plan Status */}
                 <div style={{ marginBottom: '1.5rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
+              <input
+                type="checkbox"
                       checked={newPlan.is_active}
                       onChange={(e) => setNewPlan({ ...newPlan, is_active: e.target.checked })}
-                      style={{ width: '1rem', height: '1rem' }}
-                    />
+                style={{ width: '1rem', height: '1rem' }}
+              />
                     <span style={{ fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
                       Plan is Active (visible to users)
-                    </span>
-                  </label>
+              </span>
+            </label>
                 </div>
 
                 {/* Action Buttons */}
