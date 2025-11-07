@@ -198,12 +198,16 @@ function LoginContent() {
 
         if (tenantUsers && tenantUsers.length > 0) {
           // User has tenant access - show tenant selection
-          const tenants = tenantUsers.map((tu: any) => ({
-            id: tu.tenants.id,
-            name: tu.tenants.name,
-            workspace_url: tu.tenants.workspace_url,
-            role: tu.role
-          }))
+          const tenants = tenantUsers.map((tu: any) => {
+            // Handle tenants as either object or array
+            const tenantData = Array.isArray(tu.tenants) ? tu.tenants[0] : tu.tenants
+            return {
+              id: tenantData?.id,
+              name: tenantData?.name,
+              workspace_url: tenantData?.workspace_url,
+              role: tu.role
+            }
+          }).filter((t: any) => t.id) // Filter out any null/undefined entries
 
           setUserTenants(tenants)
           setShowTenantSelection(true)
@@ -229,13 +233,17 @@ function LoginContent() {
       // Add RS Car Accessories tenant
       if (allTenantUsers) {
         const rsCarTenant = allTenantUsers.find((tu: any) => tu.tenant_id === RS_CAR_ACCESSORIES_TENANT_ID)
-        if (rsCarTenant) {
-          tenants.push({
-            id: rsCarTenant.tenants.id,
-            name: rsCarTenant.tenants.name,
-            workspace_url: rsCarTenant.tenants.workspace_url,
-            role: rsCarTenant.role
-          })
+        if (rsCarTenant && rsCarTenant.tenants) {
+          // Handle tenants as either object or array
+          const tenantData = Array.isArray(rsCarTenant.tenants) ? rsCarTenant.tenants[0] : rsCarTenant.tenants
+          if (tenantData) {
+            tenants.push({
+              id: tenantData.id,
+              name: tenantData.name,
+              workspace_url: tenantData.workspace_url,
+              role: rsCarTenant.role
+            })
+          }
         } else {
           // Add default RS Car Accessories tenant
           tenants.push({
