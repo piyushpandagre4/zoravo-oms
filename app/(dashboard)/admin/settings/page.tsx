@@ -59,7 +59,7 @@ export default function PlatformSettingsPage() {
     billing_cycle: 'monthly',
     trial_days: 24,
     is_active: true,
-    features: [],
+    features: [] as string[],
     max_users: 10,
     max_storage_gb: 5
   })
@@ -766,9 +766,11 @@ export default function PlatformSettingsPage() {
                         Add
                       </button>
                     </div>
-                    {newPlan.features && newPlan.features.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        {newPlan.features.map((feature, idx) => (
+                    {(() => {
+                      const features = newPlan.features
+                      return features && Array.isArray(features) && features.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {features.map((feature, idx) => (
                           <span
                             key={idx}
                             style={{
@@ -786,9 +788,10 @@ export default function PlatformSettingsPage() {
                             <button
                               type="button"
                               onClick={() => {
+                                const currentFeatures = newPlan.features && Array.isArray(newPlan.features) ? newPlan.features : []
                                 setNewPlan({ 
                                   ...newPlan, 
-                                  features: newPlan.features?.filter((_, i) => i !== idx) || [] 
+                                  features: currentFeatures.filter((_, i) => i !== idx)
                                 })
                               }}
                               style={{
@@ -804,9 +807,10 @@ export default function PlatformSettingsPage() {
                               <X style={{ width: '0.75rem', height: '0.75rem' }} />
                             </button>
                           </span>
-                        ))}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
 
