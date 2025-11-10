@@ -19,15 +19,7 @@ const nextConfig = {
         protocol: 'https',
         hostname: '**.supabase.in',
       },
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-      },
     ],
-  },
-  // Disable static optimization for dashboard routes to prevent prerendering errors
-  experimental: {
-    missingSuspenseWithCSRBailout: false,
   },
 }
 

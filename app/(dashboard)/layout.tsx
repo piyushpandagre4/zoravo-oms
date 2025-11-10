@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Sidebar from '@/components/sidebar'
 import Topbar from '@/components/topbar'
@@ -13,7 +13,7 @@ interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+function DashboardLayoutContent({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [userRole, setUserRole] = useState<UserRole>('admin')
@@ -118,5 +118,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       </div>
     </SubscriptionGuard>
+  )
+}
+
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>Loading...</div>}>
+      <DashboardLayoutContent>{children}</DashboardLayoutContent>
+    </Suspense>
   )
 }
