@@ -1,7 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -94,6 +92,10 @@ const getStatusIcon = (status: string) => {
       return <Clock className="h-4 w-4 text-gray-600" />
   }
 }
+
+// Disable static generation - must be exported before component
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export default function InvoicesPage() {
   const totalAmount = invoices.reduce((sum, invoice) => sum + invoice.amount, 0)
