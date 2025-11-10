@@ -47,7 +47,6 @@ interface SubscriptionPlanRequest {
 
 // Disable static generation - must be exported before component
 export const dynamic = 'force-dynamic'
-export const revalidate = 0
 
 interface TenantSubscription {
   id: string

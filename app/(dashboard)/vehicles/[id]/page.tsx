@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 
 // Disable static generation - must be exported before component
 export const dynamic = 'force-dynamic'
-export const revalidate = 0
 
 export default function VehicleDetailsPage() {
   const params = useParams()

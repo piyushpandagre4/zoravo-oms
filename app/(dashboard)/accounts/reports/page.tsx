@@ -63,7 +63,6 @@ const kpis = {
 
 // Disable static generation - must be exported before component
 export const dynamic = 'force-dynamic'
-export const revalidate = 0
 
 export default function ReportsPage() {
   const [dateRange, setDateRange] = useState('6months')
