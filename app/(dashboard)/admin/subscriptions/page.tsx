@@ -681,16 +681,17 @@ export default function SubscriptionManagementPage() {
 
   return (
     <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '2rem' }}>
+      <div style={{ marginBottom: '2.5rem' }}>
         <h1 style={{
-          fontSize: '1.875rem',
-          fontWeight: '700',
-          color: '#1f2937',
-          margin: '0 0 0.5rem 0'
+          fontSize: '2rem',
+          fontWeight: '800',
+          color: '#111827',
+          margin: '0 0 0.75rem 0',
+          letterSpacing: '-0.025em'
         }}>
           Subscription Management
         </h1>
-        <p style={{ color: '#6b7280', margin: 0 }}>
+        <p style={{ color: '#6b7280', margin: 0, fontSize: '1rem', lineHeight: '1.6' }}>
           Manage tenant subscriptions, payment proofs, and account status
         </p>
       </div>
@@ -698,36 +699,48 @@ export default function SubscriptionManagementPage() {
       {/* Filters */}
       <div style={{
         backgroundColor: 'white',
-        padding: '1.5rem',
+        padding: '1.75rem',
         borderRadius: '0.75rem',
-        marginBottom: '1.5rem',
+        marginBottom: '2rem',
         display: 'flex',
         gap: '1rem',
         alignItems: 'center',
         flexWrap: 'wrap',
-        border: '1px solid #e5e7eb'
+        border: '1px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
       }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '250px' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
           <Search style={{
             position: 'absolute',
-            left: '0.75rem',
+            left: '1rem',
             top: '50%',
             transform: 'translateY(-50%)',
-            width: '1rem',
-            height: '1rem',
-            color: '#9ca3af'
+            width: '1.125rem',
+            height: '1.125rem',
+            color: '#9ca3af',
+            pointerEvents: 'none'
           }} />
           <input
             type="text"
-            placeholder="Search tenants..."
+            placeholder="Search tenants by name or code..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '0.75rem 0.75rem 0.75rem 2.5rem',
+              padding: '0.875rem 1rem 0.875rem 2.75rem',
               border: '1px solid #d1d5db',
               borderRadius: '0.5rem',
-              fontSize: '0.875rem'
+              fontSize: '0.9375rem',
+              transition: 'all 0.2s',
+              outline: 'none'
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = '#2563eb'
+              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = '#d1d5db'
+              e.currentTarget.style.boxShadow = 'none'
             }}
           />
         </div>
@@ -735,11 +748,23 @@ export default function SubscriptionManagementPage() {
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           style={{
-            padding: '0.75rem 1rem',
+            padding: '0.875rem 1.25rem',
             border: '1px solid #d1d5db',
             borderRadius: '0.5rem',
-            fontSize: '0.875rem',
-            backgroundColor: 'white'
+            fontSize: '0.9375rem',
+            backgroundColor: 'white',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            outline: 'none',
+            fontWeight: '500'
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = '#2563eb'
+            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = '#d1d5db'
+            e.currentTarget.style.boxShadow = 'none'
           }}
         >
           <option value="all">All Status</option>
@@ -775,45 +800,66 @@ export default function SubscriptionManagementPage() {
                 key={sub.id}
                 style={{
                   backgroundColor: 'white',
-                  borderRadius: '0.75rem',
-                  padding: '1.5rem',
+                  borderRadius: '0.875rem',
+                  padding: '2rem',
                   border: '1px solid #e5e7eb',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                  marginBottom: '1.5rem',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+                  e.currentTarget.style.borderColor = '#d1d5db'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)'
+                  e.currentTarget.style.borderColor = '#e5e7eb'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                      <Building2 style={{ width: '1.25rem', height: '1.25rem', color: '#2563eb' }} />
-                      <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#1f2937', margin: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '0.75rem' }}>
+                      <div style={{
+                        width: '2.5rem',
+                        height: '2.5rem',
+                        borderRadius: '0.5rem',
+                        backgroundColor: '#eff6ff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <Building2 style={{ width: '1.5rem', height: '1.5rem', color: '#2563eb' }} />
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#111827', margin: 0, letterSpacing: '-0.01em' }}>
                         {sub.tenant_name}
                       </h3>
                       {sub.tenant_code && (
                         <span style={{
-                          padding: '0.25rem 0.5rem',
-                          borderRadius: '0.25rem',
-                          fontSize: '0.75rem',
-                          fontWeight: '600',
+                          padding: '0.375rem 0.75rem',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: '700',
                           backgroundColor: '#dbeafe',
                           color: '#1e40af',
-                          fontFamily: 'monospace'
+                          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                          border: '1px solid #bfdbfe'
                         }}>
                           {sub.tenant_code}
                         </span>
                       )}
                     </div>
                     {sub.admin && (
-                      <div style={{ fontSize: '0.875rem', color: '#6b7280', marginLeft: '2rem' }}>
-                        Admin: {sub.admin.name} ({sub.admin.email})
+                      <div style={{ fontSize: '0.9375rem', color: '#6b7280', marginLeft: '3.375rem', fontWeight: '500' }}>
+                        Admin: <span style={{ color: '#374151', fontWeight: '600' }}>{sub.admin.name}</span> ({sub.admin.email})
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     {pendingProofs.length > 0 && (
                       <button
                         onClick={() => handlePaymentCollected(sub.tenant_id, pendingProofs[0].id)}
                         style={{
-                          padding: '0.5rem 1rem',
+                          padding: '0.625rem 1.25rem',
                           borderRadius: '0.5rem',
                           fontSize: '0.875rem',
                           fontWeight: '600',
@@ -824,18 +870,21 @@ export default function SubscriptionManagementPage() {
                           gap: '0.5rem',
                           backgroundColor: '#059669',
                           color: 'white',
-                          boxShadow: '0 2px 4px rgba(5, 150, 105, 0.3)'
+                          boxShadow: '0 2px 4px rgba(5, 150, 105, 0.3)',
+                          transition: 'all 0.2s'
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = '#047857'
                           e.currentTarget.style.transform = 'translateY(-1px)'
+                          e.currentTarget.style.boxShadow = '0 4px 6px rgba(5, 150, 105, 0.4)'
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.backgroundColor = '#059669'
                           e.currentTarget.style.transform = 'translateY(0)'
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(5, 150, 105, 0.3)'
                         }}
                       >
-                        <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                        <CheckCircle style={{ width: '1.125rem', height: '1.125rem' }} />
                         Payment Collected
                       </button>
                     )}
@@ -843,20 +892,29 @@ export default function SubscriptionManagementPage() {
                       <button
                         onClick={() => handleActivateTenant(sub.tenant_id)}
                         style={{
-                          padding: '0.5rem 1rem',
+                          padding: '0.625rem 1.25rem',
                           borderRadius: '0.5rem',
                           fontSize: '0.875rem',
-                          fontWeight: '500',
-                          border: 'none',
+                          fontWeight: '600',
+                          border: '1px solid #86efac',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
                           backgroundColor: '#dcfce7',
-                          color: '#059669'
+                          color: '#059669',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#bbf7d0'
+                          e.currentTarget.style.borderColor = '#4ade80'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#dcfce7'
+                          e.currentTarget.style.borderColor = '#86efac'
                         }}
                       >
-                        <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                        <CheckCircle style={{ width: '1.125rem', height: '1.125rem' }} />
                         Activate
                       </button>
                     )}
@@ -864,40 +922,60 @@ export default function SubscriptionManagementPage() {
                       <button
                         onClick={() => handleToggleActive(sub.tenant_id, sub.is_active)}
                         style={{
-                          padding: '0.5rem 1rem',
+                          padding: '0.625rem 1.25rem',
                           borderRadius: '0.5rem',
                           fontSize: '0.875rem',
-                          fontWeight: '500',
-                          border: 'none',
+                          fontWeight: '600',
+                          border: '1px solid #fecaca',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
                           backgroundColor: '#fef2f2',
-                          color: '#dc2626'
+                          color: '#dc2626',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#fee2e2'
+                          e.currentTarget.style.borderColor = '#fca5a5'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#fef2f2'
+                          e.currentTarget.style.borderColor = '#fecaca'
                         }}
                       >
-                        <PowerOff style={{ width: '1rem', height: '1rem' }} />
-                        Inactive
+                        <PowerOff style={{ width: '1.125rem', height: '1.125rem' }} />
+                        Deactivate
                       </button>
                     )}
                     <button
                       onClick={() => handleDeleteTenant(sub.tenant_id, sub.tenant_name, sub.tenant_code || '')}
                       style={{
-                        padding: '0.5rem 1rem',
+                        padding: '0.625rem 1.25rem',
                         borderRadius: '0.5rem',
                         fontSize: '0.875rem',
-                        fontWeight: '500',
-                        border: 'none',
+                        fontWeight: '600',
+                        border: '1px solid #fecaca',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '0.5rem',
                         backgroundColor: '#fef2f2',
-                        color: '#dc2626'
+                        color: '#dc2626',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fee2e2'
+                        e.currentTarget.style.borderColor = '#fca5a5'
+                        e.currentTarget.style.transform = 'translateY(-1px)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fef2f2'
+                        e.currentTarget.style.borderColor = '#fecaca'
+                        e.currentTarget.style.transform = 'translateY(0)'
                       }}
                     >
-                      <Trash2 style={{ width: '1rem', height: '1rem' }} />
+                      <Trash2 style={{ width: '1.125rem', height: '1.125rem' }} />
                       Delete
                     </button>
                   </div>
@@ -1007,46 +1085,6 @@ export default function SubscriptionManagementPage() {
                   </div>
                 )}
 
-                {/* Missing Subscription Warning - Active tenant without subscription */}
-                {sub.is_active && !sub.subscription && (
-                  <div style={{
-                    padding: '1rem',
-                    backgroundColor: '#fef3c7',
-                    border: '1px solid #fcd34d',
-                    borderRadius: '0.5rem',
-                    marginBottom: '1rem'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <AlertCircle style={{ width: '1rem', height: '1rem', color: '#f59e0b' }} />
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#92400e' }}>
-                        ⚠️ Missing Subscription
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: '#92400e', marginBottom: '0.75rem' }}>
-                      This tenant is active but has no subscription record. Click below to create a 365-day subscription.
-                    </div>
-                    <button
-                      onClick={() => handleActivateTenant(sub.tenant_id)}
-                      style={{
-                        padding: '0.5rem 1rem',
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        fontWeight: '500',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        backgroundColor: '#059669',
-                        color: 'white'
-                      }}
-                    >
-                      <CheckCircle style={{ width: '1rem', height: '1rem' }} />
-                      Create Subscription
-                    </button>
-                  </div>
-                )}
-
                 {/* Subscription Details */}
                 <div style={{
                   display: 'grid',
@@ -1114,77 +1152,87 @@ export default function SubscriptionManagementPage() {
                 {/* Payment Proofs - Review Section */}
                 {pendingProofs.length > 0 && (
                   <div style={{
-                    padding: '1.5rem',
-                    backgroundColor: '#fffbeb',
+                    padding: '2rem',
+                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
                     border: '2px solid #fcd34d',
-                    borderRadius: '0.75rem',
+                    borderRadius: '0.875rem',
                     marginBottom: '1.5rem',
-                    boxShadow: '0 4px 6px rgba(251, 191, 36, 0.1)'
+                    boxShadow: '0 4px 12px rgba(251, 191, 36, 0.15)'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <AlertCircle style={{ width: '1.25rem', height: '1.25rem', color: '#f59e0b' }} />
-                      <div style={{ fontSize: '1rem', fontWeight: '700', color: '#92400e' }}>
-                        📋 Payment Proof Review Required ({pendingProofs.length})
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                      <div style={{
+                        width: '2.5rem',
+                        height: '2.5rem',
+                        borderRadius: '0.5rem',
+                        backgroundColor: '#f59e0b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <AlertCircle style={{ width: '1.5rem', height: '1.5rem', color: 'white' }} />
+                      </div>
+                      <div style={{ fontSize: '1.125rem', fontWeight: '800', color: '#92400e', letterSpacing: '-0.01em' }}>
+                        Payment Proof Review Required ({pendingProofs.length})
                       </div>
                     </div>
-                    <div style={{ fontSize: '0.875rem', color: '#78350f', marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.9375rem', color: '#78350f', marginBottom: '1.5rem', fontWeight: '500', lineHeight: '1.6' }}>
                       Review the payment details below and verify the payment proof. Once verified, approve to activate the tenant.
                     </div>
                     {pendingProofs.map((proof) => (
                       <div key={proof.id} style={{
-                        padding: '1.25rem',
+                        padding: '1.75rem',
                         backgroundColor: 'white',
-                        borderRadius: '0.5rem',
-                        marginBottom: '1rem',
+                        borderRadius: '0.75rem',
+                        marginBottom: '1.25rem',
                         border: '1px solid #e5e7eb',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                       }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', marginBottom: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1.5rem', marginBottom: '1.5rem' }}>
                           <div>
-                            <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#1f2937', marginBottom: '0.75rem' }}>
+                            <div style={{ fontSize: '1rem', fontWeight: '700', color: '#111827', marginBottom: '1rem', letterSpacing: '-0.01em' }}>
                               Payment Details
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', fontSize: '0.875rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', fontSize: '0.9375rem' }}>
                               <div>
-                                <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Transaction ID</div>
-                                <div style={{ fontWeight: '600', color: '#1f2937', fontFamily: 'monospace' }}>
+                                <div style={{ color: '#6b7280', fontSize: '0.8125rem', marginBottom: '0.5rem', fontWeight: '500' }}>Transaction ID</div>
+                                <div style={{ fontWeight: '700', color: '#111827', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace', fontSize: '0.9375rem' }}>
                                   {proof.transaction_id || 'N/A'}
                                 </div>
                               </div>
                               <div>
-                                <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Payment Amount</div>
-                                <div style={{ fontWeight: '600', color: '#059669', fontSize: '1rem' }}>
+                                <div style={{ color: '#6b7280', fontSize: '0.8125rem', marginBottom: '0.5rem', fontWeight: '500' }}>Payment Amount</div>
+                                <div style={{ fontWeight: '700', color: '#059669', fontSize: '1.125rem' }}>
                                   {proof.currency === 'INR' ? '₹' : '$'}{proof.amount.toLocaleString('en-IN')}
                                 </div>
                               </div>
                               <div>
-                                <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Payment Date</div>
-                                <div style={{ fontWeight: '500', color: '#1f2937' }}>
-                                  {proof.payment_date ? new Date(proof.payment_date).toLocaleDateString() : 'N/A'}
+                                <div style={{ color: '#6b7280', fontSize: '0.8125rem', marginBottom: '0.5rem', fontWeight: '500' }}>Payment Date</div>
+                                <div style={{ fontWeight: '600', color: '#111827' }}>
+                                  {proof.payment_date ? new Date(proof.payment_date).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : 'N/A'}
                                 </div>
                               </div>
                               <div>
-                                <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Submitted</div>
-                                <div style={{ fontWeight: '500', color: '#1f2937' }}>
-                                  {new Date(proof.created_at).toLocaleString()}
+                                <div style={{ color: '#6b7280', fontSize: '0.8125rem', marginBottom: '0.5rem', fontWeight: '500' }}>Submitted</div>
+                                <div style={{ fontWeight: '600', color: '#111827' }}>
+                                  {new Date(proof.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                                 </div>
                               </div>
                             </div>
                             {proof.notes && (
-                              <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#f9fafb', borderRadius: '0.375rem' }}>
-                                <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Notes</div>
-                                <div style={{ fontSize: '0.875rem', color: '#374151' }}>{proof.notes}</div>
+                              <div style={{ marginTop: '1.25rem', padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb' }}>
+                                <div style={{ color: '#6b7280', fontSize: '0.8125rem', marginBottom: '0.5rem', fontWeight: '600' }}>Notes</div>
+                                <div style={{ fontSize: '0.9375rem', color: '#374151', lineHeight: '1.6' }}>{proof.notes}</div>
                               </div>
                             )}
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
                             {proof.payment_proof_url && (
                               <a
                                 href={proof.payment_proof_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
-                                  padding: '0.75rem 1rem',
+                                  padding: '0.875rem 1.25rem',
                                   backgroundColor: '#2563eb',
                                   color: 'white',
                                   borderRadius: '0.5rem',
@@ -1192,7 +1240,7 @@ export default function SubscriptionManagementPage() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: '0.5rem',
-                                  fontSize: '0.875rem',
+                                  fontSize: '0.9375rem',
                                   fontWeight: '600',
                                   transition: 'all 0.2s',
                                   boxShadow: '0 2px 4px rgba(37, 99, 235, 0.3)'
@@ -1200,13 +1248,15 @@ export default function SubscriptionManagementPage() {
                                 onMouseEnter={(e) => {
                                   e.currentTarget.style.backgroundColor = '#1d4ed8'
                                   e.currentTarget.style.transform = 'translateY(-1px)'
+                                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(37, 99, 235, 0.4)'
                                 }}
                                 onMouseLeave={(e) => {
                                   e.currentTarget.style.backgroundColor = '#2563eb'
                                   e.currentTarget.style.transform = 'translateY(0)'
+                                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(37, 99, 235, 0.3)'
                                 }}
                               >
-                                <FileText style={{ width: '1rem', height: '1rem' }} />
+                                <FileText style={{ width: '1.125rem', height: '1.125rem' }} />
                                 View Payment Proof
                               </a>
                             )}
@@ -1214,21 +1264,21 @@ export default function SubscriptionManagementPage() {
                         </div>
                         <div style={{ 
                           display: 'flex', 
-                          gap: '0.75rem', 
+                          gap: '1rem', 
                           flexWrap: 'wrap',
-                          paddingTop: '1rem',
-                          borderTop: '1px solid #e5e7eb',
+                          paddingTop: '1.5rem',
+                          borderTop: '2px solid #e5e7eb',
                           justifyContent: 'flex-end'
                         }}>
                           <button
                             onClick={() => handleRejectPayment(proof.id)}
                             style={{
-                              padding: '0.75rem 1.5rem',
+                              padding: '0.875rem 1.75rem',
                               backgroundColor: '#fef2f2',
                               color: '#dc2626',
                               border: '1px solid #fecaca',
                               borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
+                              fontSize: '0.9375rem',
                               fontWeight: '600',
                               cursor: 'pointer',
                               display: 'flex',
@@ -1239,24 +1289,26 @@ export default function SubscriptionManagementPage() {
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = '#fee2e2'
                               e.currentTarget.style.borderColor = '#fca5a5'
+                              e.currentTarget.style.transform = 'translateY(-1px)'
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = '#fef2f2'
                               e.currentTarget.style.borderColor = '#fecaca'
+                              e.currentTarget.style.transform = 'translateY(0)'
                             }}
                           >
-                            <XCircle style={{ width: '1rem', height: '1rem' }} />
+                            <XCircle style={{ width: '1.125rem', height: '1.125rem' }} />
                             Reject
                           </button>
                           <button
                             onClick={() => handleApprovePayment(proof.id, sub.tenant_id)}
                             style={{
-                              padding: '0.75rem 1.5rem',
+                              padding: '0.875rem 1.75rem',
                               backgroundColor: '#059669',
                               color: 'white',
                               border: 'none',
                               borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
+                              fontSize: '0.9375rem',
                               fontWeight: '600',
                               cursor: 'pointer',
                               display: 'flex',
@@ -1268,7 +1320,7 @@ export default function SubscriptionManagementPage() {
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = '#047857'
                               e.currentTarget.style.transform = 'translateY(-1px)'
-                              e.currentTarget.style.boxShadow = '0 4px 6px rgba(5, 150, 105, 0.4)'
+                              e.currentTarget.style.boxShadow = '0 4px 8px rgba(5, 150, 105, 0.4)'
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = '#059669'
@@ -1276,7 +1328,7 @@ export default function SubscriptionManagementPage() {
                               e.currentTarget.style.boxShadow = '0 2px 4px rgba(5, 150, 105, 0.3)'
                             }}
                           >
-                            <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                            <CheckCircle style={{ width: '1.125rem', height: '1.125rem' }} />
                             Approve & Activate Tenant
                           </button>
                         </div>

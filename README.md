@@ -5,9 +5,21 @@
 Create a `.env.local` file in the root directory with the following variables:
 
 ```env
+# Required - Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Optional - Email Service (Resend)
+RESEND_API_KEY=your_resend_api_key
+RESEND_FROM_EMAIL=social@sunkool.in
 ```
+
+**Important**: 
+- `NEXT_PUBLIC_*` variables are exposed to the browser
+- `SUPABASE_SERVICE_ROLE_KEY` is server-only and must be kept secret
+- See `env.example` for reference
+- For Vercel deployment, add these in Project Settings → Environment Variables
 
 ## Supabase Database Schema
 
@@ -385,11 +397,38 @@ For testing purposes, you can create these user accounts in Supabase Auth:
 
 ## Deployment
 
-The application is ready for deployment on Vercel:
+### Quick Deploy to Vercel
 
-1. Push your code to GitHub
-2. Connect your repository to Vercel
-3. Add environment variables in Vercel dashboard
-4. Deploy!
+The application is ready for deployment on Vercel. Follow these steps:
 
-The application will automatically work with your Supabase backend.
+1. **Push your code to GitHub/GitLab/Bitbucket**
+2. **Connect repository to Vercel**: Go to [vercel.com/new](https://vercel.com/new)
+3. **Add environment variables** in Vercel Dashboard → Settings → Environment Variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `RESEND_API_KEY` (optional)
+   - `RESEND_FROM_EMAIL` (optional)
+4. **Deploy!** Vercel will automatically build and deploy your application
+
+### Detailed Deployment Guide
+
+For comprehensive deployment instructions, see:
+- **[VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md)** - Complete step-by-step guide
+- **[DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md)** - Pre and post-deployment checklist
+
+### Important Notes
+
+- ✅ **Build Configuration**: Already optimized for Vercel
+- ✅ **Image Domains**: Supabase storage domains configured in `next.config.js`
+- ✅ **Environment Variables**: All required variables documented
+- ✅ **TypeScript/ESLint**: Errors ignored during build (check logs for warnings)
+- ✅ **Multi-tenant Support**: Works with Vercel subdomain patterns
+
+### Post-Deployment
+
+After deployment, ensure:
+1. Supabase database schema is set up
+2. Storage buckets are created and configured
+3. First super admin user is created
+4. Test authentication and core features

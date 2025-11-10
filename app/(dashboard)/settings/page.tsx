@@ -98,6 +98,7 @@ export default function SettingsPage() {
   const [isActive, setIsActive] = useState(true)
   const [subscriptionStatus, setSubscriptionStatus] = useState<string>('trial')
   const [subscription, setSubscription] = useState<any>(null)
+  const [daysRemaining, setDaysRemaining] = useState<number | null>(null)
   const [paymentForm, setPaymentForm] = useState({
     file: null as File | null,
     transactionId: '',
@@ -150,6 +151,51 @@ export default function SettingsPage() {
     fetchMessageTemplates()
     fetchPaymentProofs()
   }, [])
+
+  // Auto-update days remaining every minute
+  useEffect(() => {
+    const calculateDaysRemaining = () => {
+      const hasApprovedProof = paymentProofs.some(p => p.status === 'approved')
+      const approvedProof = paymentProofs.find(p => p.status === 'approved')
+      
+      let startDate: string | null = null
+      let endDate: string | null = null
+      
+      if (subscription && subscription.billing_period_start && subscription.billing_period_end) {
+        startDate = subscription.billing_period_start
+        endDate = subscription.billing_period_end
+      } else if (approvedProof) {
+        const paymentDate = approvedProof.payment_date 
+          ? new Date(approvedProof.payment_date)
+          : new Date(approvedProof.created_at)
+        const calculatedStartDate = new Date(paymentDate)
+        calculatedStartDate.setHours(0, 0, 0, 0)
+        const calculatedEndDate = new Date(calculatedStartDate)
+        calculatedEndDate.setDate(calculatedEndDate.getDate() + 365)
+        calculatedEndDate.setHours(23, 59, 59, 999)
+        startDate = calculatedStartDate.toISOString()
+        endDate = calculatedEndDate.toISOString()
+      }
+      
+      if (startDate && endDate) {
+        const start = new Date(startDate).getTime()
+        const end = new Date(endDate).getTime()
+        const diff = end - start
+        const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
+        setDaysRemaining(days)
+      } else {
+        setDaysRemaining(null)
+      }
+    }
+
+    // Calculate immediately
+    calculateDaysRemaining()
+
+    // Update every minute
+    const interval = setInterval(calculateDaysRemaining, 60000)
+
+    return () => clearInterval(interval)
+  }, [subscription, paymentProofs])
 
   const loadCurrentUser = async () => {
     try {
@@ -4717,30 +4763,64 @@ export default function SettingsPage() {
 
           {/* Payment Tab - Only for Admins */}
           {activeTab === 'payment' && userRole === 'admin' && (
-            <div>
-              <div style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1e293b', margin: '0 0 0.5rem 0' }}>
+            <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <div style={{ marginBottom: '2rem' }}>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827', margin: '0 0 0.5rem 0', letterSpacing: '-0.025em' }}>
                   Payment & Subscription
                 </h3>
-                <p style={{ fontSize: '0.875rem', color: '#64748b', margin: 0 }}>
+                <p style={{ fontSize: '0.9375rem', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
                   Request account activation and submit payment proof to continue using the service
                 </p>
               </div>
 
               {/* Account Status & Trial Information */}
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.75rem', 
+                padding: '2rem', 
+                border: '1px solid #e5e7eb', 
+                marginBottom: '1.5rem',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                   <div>
-                    <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '0.5rem' }}>
+                    <h4 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', letterSpacing: '-0.01em' }}>
                       Account Status
                     </h4>
-                    <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    <div style={{ fontSize: '0.9375rem', color: '#374151' }}>
                       {subscriptionStatus === 'trial' && trialEndsAt && new Date(trialEndsAt) > new Date() ? (
-                        <span style={{ color: '#f59e0b', fontWeight: '500' }}>⏱️ Trial Period Active</span>
+                        <span style={{ 
+                          color: '#f59e0b', 
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.375rem 0.875rem',
+                          backgroundColor: '#fef3c7',
+                          borderRadius: '0.5rem'
+                        }}>⏱️ Trial Period Active</span>
                       ) : subscriptionStatus === 'active' && (subscription?.status === 'active' || paymentProofs.some(p => p.status === 'approved')) ? (
-                        <span style={{ color: '#059669', fontWeight: '500' }}>✓ Active</span>
+                        <span style={{ 
+                          color: '#059669', 
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.375rem 0.875rem',
+                          backgroundColor: '#dcfce7',
+                          borderRadius: '0.5rem'
+                        }}>✓ Active</span>
                       ) : (
-                        <span style={{ color: '#dc2626', fontWeight: '500' }}>⚠ Inactive - Payment Required</span>
+                        <span style={{ 
+                          color: '#dc2626', 
+                          fontWeight: '600',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.375rem 0.875rem',
+                          backgroundColor: '#fef2f2',
+                          borderRadius: '0.5rem'
+                        }}>⚠ Inactive - Payment Required</span>
                       )}
                     </div>
                   </div>
@@ -4749,55 +4829,80 @@ export default function SettingsPage() {
                 {/* Trial Period Countdown - Show prominently for trial accounts */}
                 {subscriptionStatus === 'trial' && trialEndsAt && (
                   <div style={{
-                    backgroundColor: '#fef3c7',
-                    border: '1px solid #fcd34d',
-                    borderRadius: '0.5rem',
-                    padding: '1rem',
-                    marginBottom: '1rem'
+                    background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                    border: '2px solid #fcd34d',
+                    borderRadius: '0.75rem',
+                    padding: '1.5rem',
+                    marginBottom: '1.5rem',
+                    boxShadow: '0 4px 6px rgba(251, 191, 36, 0.1)'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                      <Clock style={{ width: '1.25rem', height: '1.25rem', color: '#f59e0b' }} />
-                      <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#92400e', margin: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                      <div style={{
+                        width: '2.5rem',
+                        height: '2.5rem',
+                        borderRadius: '0.5rem',
+                        backgroundColor: '#f59e0b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <Clock style={{ width: '1.5rem', height: '1.5rem', color: 'white' }} />
+                      </div>
+                      <h4 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#92400e', margin: 0, letterSpacing: '-0.01em' }}>
                         {timeRemaining?.expired ? 'Trial Period Expired' : '24-Hour Trial Period'}
                       </h4>
                     </div>
                     {timeRemaining && !timeRemaining.expired && (
-                      <div style={{ marginBottom: '0.75rem' }}>
-                        <div style={{ fontSize: '0.875rem', color: '#92400e', marginBottom: '0.25rem' }}>
+                      <div style={{ marginBottom: '1rem' }}>
+                        <div style={{ fontSize: '0.875rem', color: '#78350f', marginBottom: '0.5rem', fontWeight: '500' }}>
                           Time Remaining:
                         </div>
                         <div style={{ 
-                          fontSize: '1.5rem', 
-                          fontWeight: '700', 
-                          color: '#f59e0b',
-                          fontFamily: 'monospace'
+                          fontSize: '2rem', 
+                          fontWeight: '800', 
+                          color: '#d97706',
+                          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                          letterSpacing: '0.05em',
+                          lineHeight: '1.2'
                         }}>
                           {timeRemaining.days > 0 ? `${timeRemaining.days}d ` : ''}
                           {timeRemaining.hours}h {timeRemaining.minutes}m {timeRemaining.seconds}s
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#92400e', marginTop: '0.25rem' }}>
-                          Trial expires on: {trialEndsAt ? new Date(trialEndsAt).toLocaleString() : 'N/A'}
+                        <div style={{ fontSize: '0.8125rem', color: '#92400e', marginTop: '0.5rem', fontWeight: '500' }}>
+                          Trial expires on: {trialEndsAt ? new Date(trialEndsAt).toLocaleString('en-IN', { 
+                            dateStyle: 'long', 
+                            timeStyle: 'short' 
+                          }) : 'N/A'}
                         </div>
                       </div>
                     )}
                     {timeRemaining?.expired && (
-                      <div style={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: '500' }}>
+                      <div style={{ 
+                        fontSize: '0.9375rem', 
+                        color: '#dc2626', 
+                        fontWeight: '600',
+                        padding: '0.875rem',
+                        backgroundColor: 'white',
+                        borderRadius: '0.5rem',
+                        border: '1px solid #fecaca'
+                      }}>
                         ⚠️ Your trial period has expired. Please submit payment proof to continue using the service.
                       </div>
                     )}
                     {!timeRemaining?.expired && (
                       <div style={{ 
                         fontSize: '0.875rem', 
-                        color: '#92400e',
-                        padding: '0.75rem',
+                        color: '#78350f',
+                        padding: '1rem',
                         backgroundColor: 'white',
-                        borderRadius: '0.375rem',
-                        marginTop: '0.75rem'
+                        borderRadius: '0.5rem',
+                        marginTop: '1rem',
+                        border: '1px solid #fde68a'
                       }}>
-                        <strong>📋 Next Steps:</strong>
-                        <ul style={{ margin: '0.5rem 0 0 1.25rem', padding: 0 }}>
+                        <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem' }}>📋 Next Steps:</strong>
+                        <ul style={{ margin: '0', paddingLeft: '1.25rem', lineHeight: '1.8' }}>
                           <li>Submit payment proof before trial expires to avoid service interruption</li>
-                          <li>Payment amount: ₹12,000 per year (₹1,000 per month)</li>
+                          <li>Payment amount: <strong>₹12,000 per year</strong> (₹1,000 per month)</li>
                           <li>Once payment is approved, your account will be active for 365 days</li>
                         </ul>
                       </div>
@@ -4889,23 +4994,16 @@ export default function SettingsPage() {
                         </div>
                       )}
                     </div>
-                    {subscriptionData.billing_period_end && (
+                    {subscriptionData.billing_period_end && daysRemaining !== null && (
                       <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'white', borderRadius: '0.375rem', border: '1px solid #86efac' }}>
                         <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Days Remaining</div>
-                        {(() => {
-                          const endDate = new Date(subscriptionData.billing_period_end)
-                          const now = new Date()
-                          const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-                          return (
-                            <div style={{ 
-                              fontSize: '1.125rem', 
-                              fontWeight: '700',
-                              color: daysLeft < 0 ? '#dc2626' : daysLeft <= 30 ? '#f59e0b' : '#059669'
-                            }}>
-                              {daysLeft < 0 ? `Expired ${Math.abs(daysLeft)} days ago` : `${daysLeft} days`}
-                            </div>
-                          )
-                        })()}
+                        <div style={{ 
+                          fontSize: '1.125rem', 
+                          fontWeight: '700',
+                          color: daysRemaining < 0 ? '#dc2626' : daysRemaining <= 30 ? '#f59e0b' : '#059669'
+                        }}>
+                          {daysRemaining < 0 ? `Expired ${Math.abs(daysRemaining)} days ago` : `${daysRemaining} days`}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -4915,28 +5013,45 @@ export default function SettingsPage() {
 
               {/* Payment Guidance Section */}
               {subscriptionStatus === 'trial' && (
-                <div style={{ backgroundColor: '#eff6ff', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid #bfdbfe', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                    <HelpCircle style={{ width: '1.25rem', height: '1.25rem', color: '#2563eb' }} />
-                    <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e40af', margin: 0 }}>
+                <div style={{ 
+                  backgroundColor: '#eff6ff', 
+                  borderRadius: '0.75rem', 
+                  padding: '2rem', 
+                  border: '1px solid #bfdbfe', 
+                  marginBottom: '1.5rem',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                    <div style={{
+                      width: '2.5rem',
+                      height: '2.5rem',
+                      borderRadius: '0.5rem',
+                      backgroundColor: '#2563eb',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <HelpCircle style={{ width: '1.5rem', height: '1.5rem', color: 'white' }} />
+                    </div>
+                    <h4 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#1e40af', margin: 0, letterSpacing: '-0.01em' }}>
                       How to Submit Payment Proof
                     </h4>
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: '#1e40af', lineHeight: '1.6' }}>
-                    <p style={{ marginBottom: '0.75rem', fontWeight: '500' }}>
+                  <div style={{ fontSize: '0.9375rem', color: '#1e3a8a', lineHeight: '1.7' }}>
+                    <p style={{ marginBottom: '1rem', fontWeight: '600', fontSize: '1rem' }}>
                       To activate your account after the trial period, please follow these steps:
                     </p>
-                    <ol style={{ marginLeft: '1.5rem', marginBottom: '0.75rem' }}>
-                      <li style={{ marginBottom: '0.5rem' }}>
+                    <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem', paddingLeft: '0.5rem' }}>
+                      <li style={{ marginBottom: '0.75rem' }}>
                         <strong>Make Payment:</strong> Transfer ₹12,000 to the account details provided by support (contact support for payment information)
                       </li>
-                      <li style={{ marginBottom: '0.5rem' }}>
+                      <li style={{ marginBottom: '0.75rem' }}>
                         <strong>Collect Proof:</strong> Take a screenshot or download your bank transaction receipt/statement showing the payment
                       </li>
-                      <li style={{ marginBottom: '0.5rem' }}>
+                      <li style={{ marginBottom: '0.75rem' }}>
                         <strong>Submit Below:</strong> Upload the payment proof (image or PDF), enter your transaction ID, and submit
                       </li>
-                      <li style={{ marginBottom: '0.5rem' }}>
+                      <li style={{ marginBottom: '0.75rem' }}>
                         <strong>Wait for Approval:</strong> Super admin will review your payment proof within 24-48 hours
                       </li>
                       <li>
@@ -4944,14 +5059,15 @@ export default function SettingsPage() {
                       </li>
                     </ol>
                     <div style={{ 
-                      padding: '0.75rem', 
+                      padding: '1rem', 
                       backgroundColor: 'white', 
-                      borderRadius: '0.375rem',
+                      borderRadius: '0.5rem',
                       border: '1px solid #bfdbfe',
-                      marginTop: '0.75rem'
+                      marginTop: '1rem',
+                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                      <strong>💡 Need Payment Details?</strong>
-                      <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8125rem' }}>
+                      <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem' }}>💡 Need Payment Details?</strong>
+                      <p style={{ margin: 0, fontSize: '0.875rem', color: '#1e3a8a', lineHeight: '1.6' }}>
                         Contact our support team using the "Subscription Support" section below to get bank account details and payment instructions.
                       </p>
                     </div>
@@ -4960,38 +5076,80 @@ export default function SettingsPage() {
               )}
 
               {/* Payment Proof Form */}
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
-                <div style={{ marginBottom: '1rem' }}>
-                  <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '0.5rem' }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.75rem', 
+                padding: '2rem', 
+                border: '1px solid #e5e7eb', 
+                marginBottom: '1.5rem',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+              }}>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h4 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#111827', marginBottom: '0.5rem', letterSpacing: '-0.01em' }}>
                     Submit Payment Proof
                   </h4>
-                  <p style={{ fontSize: '0.875rem', color: '#64748b', margin: 0 }}>
+                  <p style={{ fontSize: '0.9375rem', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
                     Upload your payment receipt or bank statement to activate your account. Accepted formats: JPG, PNG, PDF (Max 10MB)
                   </p>
                 </div>
                 <form onSubmit={handlePaymentProofSubmit}>
-                  <div style={{ display: 'grid', gap: '1rem' }}>
+                  <div style={{ display: 'grid', gap: '1.5rem' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                        Payment Proof (Image/PDF) *
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '0.875rem', 
+                        fontWeight: '600', 
+                        color: '#374151', 
+                        marginBottom: '0.75rem'
+                      }}>
+                        Payment Proof (Image/PDF) <span style={{ color: '#dc2626' }}>*</span>
                       </label>
-                      <input
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={(e) => setPaymentForm({ ...paymentForm, file: e.target.files?.[0] || null })}
-                        required
-                        style={{
-                          width: '100%',
-                          padding: '0.5rem',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '0.375rem',
-                          fontSize: '0.875rem'
-                        }}
-                      />
+                      <div style={{
+                        position: 'relative',
+                        border: '2px dashed #d1d5db',
+                        borderRadius: '0.5rem',
+                        padding: '2rem',
+                        textAlign: 'center',
+                        backgroundColor: '#f9fafb',
+                        transition: 'all 0.2s',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#2563eb'
+                        e.currentTarget.style.backgroundColor = '#eff6ff'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#d1d5db'
+                        e.currentTarget.style.backgroundColor = '#f9fafb'
+                      }}
+                      onClick={() => document.getElementById('payment-proof-file')?.click()}
+                      >
+                        <input
+                          id="payment-proof-file"
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={(e) => setPaymentForm({ ...paymentForm, file: e.target.files?.[0] || null })}
+                          required
+                          style={{ display: 'none' }}
+                        />
+                        <FileText style={{ width: '2.5rem', height: '2.5rem', color: '#6b7280', margin: '0 auto 0.75rem' }} />
+                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.25rem' }}>
+                          {paymentForm.file ? paymentForm.file.name : 'Click to upload or drag and drop'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                          JPG, PNG, PDF (Max 10MB)
+                        </div>
+                      </div>
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                        Transaction ID / Reference Number *
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '0.875rem', 
+                        fontWeight: '600', 
+                        color: '#374151', 
+                        marginBottom: '0.75rem'
+                      }}>
+                        Transaction ID / Reference Number <span style={{ color: '#dc2626' }}>*</span>
                       </label>
                       <input
                         type="text"
@@ -5001,16 +5159,32 @@ export default function SettingsPage() {
                         required
                         style={{
                           width: '100%',
-                          padding: '0.75rem',
+                          padding: '0.875rem 1rem',
                           border: '1px solid #d1d5db',
-                          borderRadius: '0.375rem',
-                          fontSize: '0.875rem'
+                          borderRadius: '0.5rem',
+                          fontSize: '0.9375rem',
+                          transition: 'all 0.2s',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = '#2563eb'
+                          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                          e.currentTarget.style.boxShadow = 'none'
                         }}
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                        Payment Date *
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '0.875rem', 
+                        fontWeight: '600', 
+                        color: '#374151', 
+                        marginBottom: '0.75rem'
+                      }}>
+                        Payment Date <span style={{ color: '#dc2626' }}>*</span>
                       </label>
                       <input
                         type="date"
@@ -5019,29 +5193,56 @@ export default function SettingsPage() {
                         required
                         style={{
                           width: '100%',
-                          padding: '0.75rem',
+                          padding: '0.875rem 1rem',
                           border: '1px solid #d1d5db',
-                          borderRadius: '0.375rem',
-                          fontSize: '0.875rem'
+                          borderRadius: '0.5rem',
+                          fontSize: '0.9375rem',
+                          transition: 'all 0.2s',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = '#2563eb'
+                          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                          e.currentTarget.style.boxShadow = 'none'
                         }}
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '0.875rem', 
+                        fontWeight: '600', 
+                        color: '#374151', 
+                        marginBottom: '0.75rem'
+                      }}>
                         Notes (Optional)
                       </label>
                       <textarea
                         value={paymentForm.notes}
                         onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
                         placeholder="Any additional information..."
-                        rows={3}
+                        rows={4}
                         style={{
                           width: '100%',
-                          padding: '0.75rem',
+                          padding: '0.875rem 1rem',
                           border: '1px solid #d1d5db',
-                          borderRadius: '0.375rem',
-                          fontSize: '0.875rem',
-                          resize: 'vertical'
+                          borderRadius: '0.5rem',
+                          fontSize: '0.9375rem',
+                          resize: 'vertical',
+                          transition: 'all 0.2s',
+                          outline: 'none',
+                          fontFamily: 'inherit'
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = '#2563eb'
+                          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                          e.currentTarget.style.boxShadow = 'none'
                         }}
                       />
                     </div>
@@ -5049,20 +5250,37 @@ export default function SettingsPage() {
                       type="submit"
                       disabled={uploadingProof || !paymentForm.file}
                       style={{
-                        padding: '0.75rem 1.5rem',
+                        padding: '0.875rem 1.75rem',
                         backgroundColor: (uploadingProof || !paymentForm.file) ? '#9ca3af' : '#059669',
                         color: 'white',
                         border: 'none',
-                        borderRadius: '0.375rem',
-                        fontSize: '0.875rem',
+                        borderRadius: '0.5rem',
+                        fontSize: '0.9375rem',
                         fontWeight: '600',
                         cursor: (uploadingProof || !paymentForm.file) ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem'
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        transition: 'all 0.2s',
+                        boxShadow: (uploadingProof || !paymentForm.file) ? 'none' : '0 2px 4px rgba(5, 150, 105, 0.2)'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!uploadingProof && paymentForm.file) {
+                          e.currentTarget.style.backgroundColor = '#047857'
+                          e.currentTarget.style.transform = 'translateY(-1px)'
+                          e.currentTarget.style.boxShadow = '0 4px 6px rgba(5, 150, 105, 0.3)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!uploadingProof && paymentForm.file) {
+                          e.currentTarget.style.backgroundColor = '#059669'
+                          e.currentTarget.style.transform = 'translateY(0)'
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(5, 150, 105, 0.2)'
+                        }
                       }}
                     >
-                      <Save style={{ width: '1rem', height: '1rem' }} />
+                      <Save style={{ width: '1.125rem', height: '1.125rem' }} />
                       {uploadingProof ? 'Submitting...' : 'Submit Payment Proof'}
                     </button>
                   </div>
@@ -5071,41 +5289,62 @@ export default function SettingsPage() {
 
               {/* Payment Proof History */}
               {paymentProofs.length > 0 && (
-                <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid #e2e8f0', marginBottom: '1.5rem' }}>
-                  <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '1rem' }}>
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  borderRadius: '0.75rem', 
+                  padding: '2rem', 
+                  border: '1px solid #e5e7eb', 
+                  marginBottom: '1.5rem',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+                }}>
+                  <h4 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#111827', marginBottom: '1.5rem', letterSpacing: '-0.01em' }}>
                     Payment Proof History
                   </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {paymentProofs.map((proof) => (
                       <div
                         key={proof.id}
                         style={{
-                          padding: '1rem',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '0.375rem',
+                          padding: '1.25rem',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '0.5rem',
                           display: 'flex',
                           justifyContent: 'space-between',
-                          alignItems: 'center'
+                          alignItems: 'center',
+                          backgroundColor: '#f9fafb',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f3f4f6'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#e5e7eb'
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '0.875rem', fontWeight: '500', color: '#1e293b', marginBottom: '0.25rem' }}>
-                            Transaction: {proof.transaction_id || 'N/A'}
+                          <div style={{ fontSize: '0.9375rem', fontWeight: '600', color: '#111827', marginBottom: '0.375rem' }}>
+                            Transaction: <span style={{ fontFamily: 'monospace', color: '#374151' }}>{proof.transaction_id || 'N/A'}</span>
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            Submitted: {new Date(proof.created_at).toLocaleString()}
+                          <div style={{ fontSize: '0.8125rem', color: '#6b7280' }}>
+                            Submitted: {new Date(proof.created_at).toLocaleString('en-IN', { 
+                              dateStyle: 'medium', 
+                              timeStyle: 'short' 
+                            })}
                           </div>
                         </div>
                         <div>
                           <span style={{
-                            padding: '0.25rem 0.75rem',
-                            borderRadius: '9999px',
-                            fontSize: '0.75rem',
-                            fontWeight: '500',
+                            padding: '0.5rem 1rem',
+                            borderRadius: '0.5rem',
+                            fontSize: '0.8125rem',
+                            fontWeight: '600',
                             backgroundColor: proof.status === 'approved' ? '#dcfce7' : proof.status === 'rejected' ? '#fef2f2' : '#fef3c7',
-                            color: proof.status === 'approved' ? '#166534' : proof.status === 'rejected' ? '#dc2626' : '#92400e'
+                            color: proof.status === 'approved' ? '#166534' : proof.status === 'rejected' ? '#dc2626' : '#92400e',
+                            border: `1px solid ${proof.status === 'approved' ? '#86efac' : proof.status === 'rejected' ? '#fecaca' : '#fde68a'}`
                           }}>
-                            {proof.status === 'approved' ? 'Approved' : proof.status === 'rejected' ? 'Rejected' : 'Pending'}
+                            {proof.status === 'approved' ? '✓ Approved' : proof.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
                           </span>
                         </div>
                       </div>
@@ -5115,20 +5354,36 @@ export default function SettingsPage() {
               )}
 
               {/* Support Section */}
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <HelpCircle style={{ width: '1.25rem', height: '1.25rem', color: '#2563eb' }} />
-                  <h4 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', margin: 0 }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.75rem', 
+                padding: '2rem', 
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                  <div style={{
+                    width: '2.5rem',
+                    height: '2.5rem',
+                    borderRadius: '0.5rem',
+                    backgroundColor: '#2563eb',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <HelpCircle style={{ width: '1.5rem', height: '1.5rem', color: 'white' }} />
+                  </div>
+                  <h4 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#111827', margin: 0, letterSpacing: '-0.01em' }}>
                     Subscription Support
                   </h4>
                 </div>
-                <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.9375rem', color: '#6b7280', marginBottom: '1.5rem', lineHeight: '1.6' }}>
                   Need help with your subscription or payment? Contact our support team:
                 </p>
                 {loadingSupport ? (
-                  <div style={{ padding: '1rem', textAlign: 'center', color: '#64748b' }}>Loading support contacts...</div>
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: '#6b7280', fontSize: '0.9375rem' }}>Loading support contacts...</div>
                 ) : supportEmails.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {supportEmails.map((email, index) => (
                       <a
                         key={index}
@@ -5137,39 +5392,45 @@ export default function SettingsPage() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.75rem',
-                          padding: '0.75rem 1rem',
+                          padding: '1rem 1.25rem',
                           backgroundColor: '#eff6ff',
                           border: '1px solid #bfdbfe',
-                          borderRadius: '0.375rem',
+                          borderRadius: '0.5rem',
                           textDecoration: 'none',
                           color: '#1e40af',
-                          fontSize: '0.875rem',
-                          fontWeight: '500',
+                          fontSize: '0.9375rem',
+                          fontWeight: '600',
                           transition: 'all 0.2s',
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = '#dbeafe'
                           e.currentTarget.style.borderColor = '#93c5fd'
+                          e.currentTarget.style.transform = 'translateY(-1px)'
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)'
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.backgroundColor = '#eff6ff'
                           e.currentTarget.style.borderColor = '#bfdbfe'
+                          e.currentTarget.style.transform = 'translateY(0)'
+                          e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)'
                         }}
                       >
-                        <Mail style={{ width: '1rem', height: '1rem' }} />
+                        <Mail style={{ width: '1.125rem', height: '1.125rem' }} />
                         <span>{email}</span>
                       </a>
                     ))}
                   </div>
                 ) : (
                   <div style={{
-                    padding: '1rem',
+                    padding: '1.25rem',
                     backgroundColor: '#fef3c7',
                     border: '1px solid #fcd34d',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.875rem',
-                    color: '#92400e'
+                    borderRadius: '0.5rem',
+                    fontSize: '0.9375rem',
+                    color: '#92400e',
+                    fontWeight: '500'
                   }}>
                     Support contacts are not available. Please contact your system administrator.
                   </div>

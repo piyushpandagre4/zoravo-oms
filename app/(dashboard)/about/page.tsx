@@ -358,10 +358,69 @@ export default function AboutPage() {
           <DetailRow label="Location" value="Sunkool Solutions, Nagpur, India" />
           <DetailRow label="Connect" value={
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <a href="#" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>LinkedIn</a>
-              <a href="#" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>Instagram</a>
-              <a href="#" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>Facebook</a>
-              <a href="#" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>YouTube</a>
+              <a 
+                href="https://www.instagram.com/sunkool_india?igsh=a3BheDM5OGJmN2p6" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  color: '#2563eb', 
+                  fontWeight: 600, 
+                  textDecoration: 'none',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#1d4ed8'
+                  e.currentTarget.style.textDecoration = 'underline'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#2563eb'
+                  e.currentTarget.style.textDecoration = 'none'
+                }}
+              >
+                Instagram
+              </a>
+              <a 
+                href="https://www.facebook.com/sunkoolindia/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  color: '#2563eb', 
+                  fontWeight: 600, 
+                  textDecoration: 'none',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#1d4ed8'
+                  e.currentTarget.style.textDecoration = 'underline'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#2563eb'
+                  e.currentTarget.style.textDecoration = 'none'
+                }}
+              >
+                Facebook
+              </a>
+              <a 
+                href="https://youtube.com/@sunkool?si=pYNtmgiWmkZKBNEa" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  color: '#2563eb', 
+                  fontWeight: 600, 
+                  textDecoration: 'none',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#1d4ed8'
+                  e.currentTarget.style.textDecoration = 'underline'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#2563eb'
+                  e.currentTarget.style.textDecoration = 'none'
+                }}
+              >
+                YouTube
+              </a>
             </div>
           } />
         </div>
