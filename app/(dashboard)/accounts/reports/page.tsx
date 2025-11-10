@@ -63,6 +63,12 @@ const kpis = {
 
 // Disable static generation - must be exported before component
 export const dynamic = 'force-dynamic'
+export const dynamicParams = true
+
+// Prevent static generation by returning empty array
+export function generateStaticParams() {
+  return []
+}
 
 export default function ReportsPage() {
   const [dateRange, setDateRange] = useState('6months')

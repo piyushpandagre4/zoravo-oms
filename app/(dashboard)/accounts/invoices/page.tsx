@@ -95,6 +95,12 @@ const getStatusIcon = (status: string) => {
 
 // Disable static generation - must be exported before component
 export const dynamic = 'force-dynamic'
+export const dynamicParams = true
+
+// Prevent static generation by returning empty array
+export function generateStaticParams() {
+  return []
+}
 
 export default function InvoicesPage() {
   const totalAmount = invoices.reduce((sum, invoice) => sum + invoice.amount, 0)
