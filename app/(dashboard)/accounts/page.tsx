@@ -49,6 +49,10 @@ interface InvoiceReference {
   uploadedAt?: string
 }
 
+// Disable static generation - must be exported before component
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default function AccountsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState('entries')
