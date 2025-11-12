@@ -61,19 +61,13 @@ export default function ServiceTrackerPageClient() {
       if (error) {
         // Check if error is due to missing tenant_id column (PostgreSQL error code 42703 = undefined_column)
         if (error.code === '42703' && error.message?.includes('tenant_id')) {
-          console.error('Γ¥î ERROR: tenant_id column is missing in service_tracker table.')
-          console.error('≡ƒôï SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
+          console.error('ERROR: tenant_id column is missing in service_tracker table.')
+          console.error('SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
           console.error('   File: database/add_tenant_id_to_service_tracker.sql')
           console.error('   This will add the tenant_id column and enable multi-tenant data isolation.')
           alert('Database migration required: Please run database/add_tenant_id_to_service_tracker.sql in Supabase SQL Editor to add tenant_id column to service_tracker table.')
         } else {
-          // More detailed error logging for other errors
-          console.error('Error fetching services:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          })
+          console.error('Error fetching services:', error.message)
         }
         setServices([])
         return

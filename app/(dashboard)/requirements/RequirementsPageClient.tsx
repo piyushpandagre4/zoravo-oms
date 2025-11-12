@@ -26,6 +26,7 @@ export default function RequirementsPageClient() {
   const [formData, setFormData] = useState({
     customer_name: '',
     customer_number: '',
+    vehicle_name: '',
     description: '',
     priority: 'medium',
     status: 'pending'
@@ -55,19 +56,13 @@ export default function RequirementsPageClient() {
       if (error) {
         // Check if error is due to missing tenant_id column (PostgreSQL error code 42703 = undefined_column)
         if (error.code === '42703' && error.message?.includes('tenant_id')) {
-          console.error('Γ¥î ERROR: tenant_id column is missing in customer_requirements table.')
-          console.error('≡ƒôï SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
+          console.error('ERROR: tenant_id column is missing in customer_requirements table.')
+          console.error('SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
           console.error('   File: database/add_tenant_id_to_customer_requirements.sql')
           console.error('   This will add the tenant_id column and enable multi-tenant data isolation.')
           alert('Database migration required: Please run database/add_tenant_id_to_customer_requirements.sql in Supabase SQL Editor to add tenant_id column to customer_requirements table.')
         } else {
-          // More detailed error logging for other errors
-          console.error('Error fetching requirements:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          })
+          console.error('Error fetching requirements:', error.message)
         }
         setRequirements([])
         return
@@ -75,11 +70,7 @@ export default function RequirementsPageClient() {
       
       setRequirements(data || [])
     } catch (error: any) {
-      // More detailed error logging for catch block
-      console.error('Error fetching requirements (catch):', {
-        message: error?.message || 'Unknown error',
-        error: error
-      })
+      console.error('Error fetching requirements:', error?.message || 'Unknown error')
       setRequirements([])
     }
   }
@@ -173,7 +164,7 @@ export default function RequirementsPageClient() {
   }
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    setFormData(prev => ({ ...prev, [field]: value || '' }))
   }
 
   const handleSubmit = async () => {
@@ -400,6 +391,7 @@ export default function RequirementsPageClient() {
     setFormData({
       customer_name: '',
       customer_number: '',
+      vehicle_name: '',
       description: '',
       priority: 'medium',
       status: 'pending'
@@ -708,6 +700,12 @@ export default function RequirementsPageClient() {
                     <a href={`tel:${req.customer_number}`} style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.75rem' }}>
                       {req.customer_number}
                     </a>
+                    {req.vehicle_name && (
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <Car style={{ width: '0.875rem', height: '0.875rem' }} />
+                        {req.vehicle_name}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#64748b' }}>{req.description}</td>
                   <td style={{ padding: '1rem' }}>
@@ -765,7 +763,14 @@ export default function RequirementsPageClient() {
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button
                         onClick={() => {
-                          setFormData({ ...req, status: req.status })
+                          setFormData({ 
+                            customer_name: req.customer_name || '',
+                            customer_number: req.customer_number || '',
+                            vehicle_name: req.vehicle_name || '',
+                            description: req.description || '',
+                            priority: req.priority || 'medium',
+                            status: req.status || 'pending'
+                          })
                           setSelectedRequirement({ ...req, editing: true })
                           setShowAddModal(true)
                         }}
@@ -893,6 +898,26 @@ export default function RequirementsPageClient() {
                     }}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '500', color: '#374151' }}>
+                  Vehicle Name *
+                </label>
+                <input
+                  type="text"
+                  value={formData.vehicle_name || ''}
+                  onChange={(e) => handleInputChange('vehicle_name', e.target.value)}
+                  placeholder="Enter vehicle name (e.g., Honda City, Toyota Innova)"
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.375rem',
+                    fontSize: '1rem',
+                    outline: 'none'
+                  }}
+                />
               </div>
 
               <div>
@@ -1038,16 +1063,16 @@ export default function RequirementsPageClient() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={!formData.customer_name || !formData.customer_number || !formData.description}
+                disabled={!formData.customer_name || !formData.customer_number || !formData.vehicle_name || !formData.description}
                 style={{
                   padding: '0.75rem 1.5rem',
-                  backgroundColor: (!formData.customer_name || !formData.customer_number || !formData.description) ? '#94a3b8' : '#2563eb',
+                  backgroundColor: (!formData.customer_name || !formData.customer_number || !formData.vehicle_name || !formData.description) ? '#94a3b8' : '#2563eb',
                   color: 'white',
                   border: 'none',
                   borderRadius: '0.375rem',
                   fontSize: '1rem',
                   fontWeight: '500',
-                  cursor: (!formData.customer_name || !formData.customer_number || !formData.description) ? 'not-allowed' : 'pointer'
+                  cursor: (!formData.customer_name || !formData.customer_number || !formData.vehicle_name || !formData.description) ? 'not-allowed' : 'pointer'
                 }}
               >
                 {selectedRequirement?.editing ? 'Update' : 'Add'} Requirement

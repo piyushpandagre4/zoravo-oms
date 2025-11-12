@@ -51,7 +51,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
   const [products, setProducts] = useState<any[]>([])
   const [departmentNames, setDepartmentNames] = useState<Map<string, string>>(new Map())
   const [companyName, setCompanyName] = useState<string>('RS CAR ACCESSORIES')
-  const [companyLocation, setCompanyLocation] = useState<string>('Nagpur')
+  const [companyLocation, setCompanyLocation] = useState<string>('')
 
   useEffect(() => {
     fetchRelatedData()
@@ -59,6 +59,48 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
     fetchDepartments()
     fetchCompanySettings()
   }, [vehicle])
+  
+  // Fetch location from vehicle if company location is not set after company settings are loaded
+  useEffect(() => {
+    const fetchLocationFromVehicle = async () => {
+      // Wait for fetchCompanySettings to complete first
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Check current state - if still empty, try vehicle location
+      const checkAndSetLocation = async () => {
+        if (vehicle.location_id) {
+          try {
+            const { data: locationData } = await supabase
+              .from('locations')
+              .select('name, address')
+              .eq('id', vehicle.location_id)
+              .single()
+            
+            if (locationData?.name) {
+              // Only set if companyLocation is still empty
+              setCompanyLocation(prev => prev || locationData.name)
+            } else if (locationData?.address) {
+              // Extract city from location address
+              const parts = locationData.address.split(',').map(p => p.trim())
+              if (parts.length >= 2) {
+                const cityIndex = parts.length >= 3 ? parts.length - 2 : 1
+                const city = parts[cityIndex]
+                if (city && city.length > 0) {
+                  setCompanyLocation(prev => prev || city)
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching location from vehicle:', error)
+          }
+        }
+      }
+      
+      checkAndSetLocation()
+    }
+    
+    fetchLocationFromVehicle()
+  }, [vehicle.location_id])
 
   const fetchRelatedData = async () => {
     try {
@@ -130,32 +172,70 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
 
   const fetchCompanySettings = async () => {
     try {
-      const { data } = await supabase
+      // Get current tenant ID
+      const tenantId = typeof window !== 'undefined' ? sessionStorage.getItem('current_tenant_id') : null
+      const isSuper = typeof window !== 'undefined' ? sessionStorage.getItem('is_super_admin') === 'true' : false
+      
+      let query = supabase
         .from('system_settings')
         .select('setting_key, setting_value')
         .in('setting_key', ['company_name', 'company_address'])
         .eq('setting_group', 'company')
       
-      if (data) {
+      // Filter by tenant_id for tenant-specific settings
+      if (!isSuper && tenantId) {
+        query = query.eq('tenant_id', tenantId)
+      }
+      
+      const { data } = await query
+      
+      if (data && data.length > 0) {
         const nameSetting = data.find(s => s.setting_key === 'company_name')
         const addressSetting = data.find(s => s.setting_key === 'company_address')
         
         if (nameSetting?.setting_value) {
           setCompanyName(nameSetting.setting_value.toUpperCase())
+        } else if (tenantId && !isSuper) {
+          // Fallback: Get company name from tenants table
+          const { data: tenantData } = await supabase
+            .from('tenants')
+            .select('name')
+            .eq('id', tenantId)
+            .single()
+          
+          if (tenantData?.name) {
+            setCompanyName(tenantData.name.toUpperCase())
+          }
         }
         
         // Extract location from address if available
         if (addressSetting?.setting_value) {
           const address = addressSetting.setting_value
-          const parts = address.split(',')
+          // Try to extract city from common address formats
+          // Format: "Street, City, State, Pincode" or "Street, City, State"
+          const parts = address.split(',').map(p => p.trim())
           if (parts.length >= 2) {
-            const city = parts[parts.length - 2].trim()
-            if (city) {
+            // City is usually the second-to-last part (before state/pincode)
+            const cityIndex = parts.length >= 3 ? parts.length - 2 : 1
+            const city = parts[cityIndex]
+            if (city && city.length > 0) {
               setCompanyLocation(city)
             }
           }
         }
+      } else if (tenantId && !isSuper) {
+        // If no settings found, try to get from tenants table
+        const { data: tenantData } = await supabase
+          .from('tenants')
+          .select('name')
+          .eq('id', tenantId)
+          .single()
+        
+        if (tenantData?.name) {
+          setCompanyName(tenantData.name.toUpperCase())
+        }
       }
+      
     } catch (error) {
       console.error('Error loading company settings:', error)
     }
@@ -633,7 +713,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
               </div>
               <div className="company-header-section">
                 <div className="company-name-main">{companyName}</div>
-                <div className="company-location-main">{companyLocation}</div>
+                {companyLocation && <div className="company-location-main">{companyLocation}</div>}
               </div>
               <div style={{ width: '120px', flexShrink: 0 }}></div>
             </div>

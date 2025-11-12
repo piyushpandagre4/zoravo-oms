@@ -21,53 +21,179 @@ import {
   Briefcase,
   User,
   HelpCircle,
-  Mail
+  Mail,
+  Play,
+  Linkedin,
+  Instagram,
+  Youtube,
+  Zap,
+  Target,
+  Building2,
+  Facebook,
+  MapPin,
+  Code
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 
 export default function LandingPage() {
   const router = useRouter()
   const [showCreateAccount, setShowCreateAccount] = useState(false)
+  const [isScrolled, setIsScrolled] = useState(false)
+  const [animatedStats, setAnimatedStats] = useState({
+    vehicles: 0,
+    customers: 0,
+    services: 0,
+    team: 0
+  })
+
+  // Sticky header on scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50)
+    }
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Animated counters for stats
+  useEffect(() => {
+    const targets = { vehicles: 2500, customers: 1800, services: 5200, team: 50 }
+    const duration = 2000
+    const steps = 60
+    const increment = duration / steps
+
+    let currentStep = 0
+    const timer = setInterval(() => {
+      currentStep++
+      const progress = currentStep / steps
+      
+      setAnimatedStats({
+        vehicles: Math.floor(targets.vehicles * progress),
+        customers: Math.floor(targets.customers * progress),
+        services: Math.floor(targets.services * progress),
+        team: Math.floor(targets.team * progress)
+      })
+
+      if (currentStep >= steps) {
+        clearInterval(timer)
+        setAnimatedStats(targets)
+      }
+    }, increment)
+
+    return () => clearInterval(timer)
+  }, [])
 
 
-  const features = [
+  // Features organized in 3 tiers
+  const coreModules = [
     {
       icon: Car,
-      title: 'Vehicle Management',
-      description: 'Complete vehicle tracking from intake to delivery with detailed history and status updates.'
+      title: 'Track Every Vehicle. Every Time.',
+      description: 'Complete vehicle lifecycle management from intake to delivery with real-time status tracking and detailed history.',
+      tier: 'core'
     },
     {
       icon: Wrench,
-      title: 'Service Tracking',
-      description: 'Real-time work order management with installer assignments and progress monitoring.'
+      title: 'Service Tracking Made Simple',
+      description: 'Real-time work order management with installer assignments, progress monitoring, and automated notifications.',
+      tier: 'core'
+    },
+    {
+      icon: FileText,
+      title: 'Automated Invoicing & Payments',
+      description: 'Streamlined invoicing system with payment tracking, automated reminders, and financial reporting.',
+      tier: 'core'
+    }
+  ]
+
+  const growthTools = [
+    {
+      icon: BarChart3,
+      title: 'Analytics That Drive Decisions',
+      description: 'Powerful insights into business performance with customizable reports, KPIs, and revenue analytics.',
+      tier: 'growth'
     },
     {
       icon: Users,
-      title: 'Customer Relations',
-      description: 'Comprehensive customer database with service history and communication tracking.'
+      title: 'Customer Relationship Management',
+      description: 'Comprehensive customer database with service history, communication tracking, and follow-up automation.',
+      tier: 'growth'
     },
     {
-      icon: BarChart3,
-      title: 'Analytics & Reports',
-      description: 'Detailed insights into business performance with customizable reports and KPIs.'
-    },
+      icon: Zap,
+      title: 'Workflow Automation',
+      description: 'Automate repetitive tasks, send daily reports, and streamline operations with smart notifications.',
+      tier: 'growth'
+    }
+  ]
+
+  const teamTools = [
     {
       icon: Shield,
-      title: 'Role-Based Access',
-      description: 'Secure multi-role system ensuring appropriate access levels for different team members.'
+      title: 'Role-Based Access Control',
+      description: 'Secure multi-role system with granular permissions for admins, managers, coordinators, and installers.',
+      tier: 'team'
+    },
+    {
+      icon: Building2,
+      title: 'Multi-Tenant Franchise Support',
+      description: 'Manage multiple locations and franchises with complete data isolation and centralized oversight.',
+      tier: 'team'
     },
     {
       icon: Clock,
-      title: 'Real-Time Updates',
-      description: 'Live status updates and notifications to keep everyone informed of progress.'
+      title: 'Real-Time Collaboration',
+      description: 'Live status updates, instant notifications, and seamless team communication across all devices.',
+      tier: 'team'
     }
   ]
 
   const stats = [
-    { label: 'Vehicles Processed', value: '2,500+', icon: Car },
-    { label: 'Happy Customers', value: '1,800+', icon: Users },
-    { label: 'Services Completed', value: '5,200+', icon: CheckCircle },
-    { label: 'Team Members', value: '50+', icon: Settings }
+    { 
+      label: 'Vehicles Processed', 
+      value: animatedStats.vehicles, 
+      icon: Car,
+      context: 'across 40+ workshops nationwide'
+    },
+    { 
+      label: 'Happy Customers', 
+      value: animatedStats.customers, 
+      icon: Users,
+      context: 'trusting us with their business'
+    },
+    { 
+      label: 'Services Completed', 
+      value: animatedStats.services, 
+      icon: CheckCircle,
+      context: 'with 98% customer satisfaction'
+    },
+    { 
+      label: 'Team Members', 
+      value: animatedStats.team, 
+      icon: Settings,
+      context: 'serving businesses of every scale'
+    }
+  ]
+
+  const testimonials = [
+    {
+      name: 'Rajesh Kumar',
+      business: 'Auto Accessories Hub, Mumbai',
+      quote: 'Zoravo OMS transformed our operations. We can now track every vehicle from intake to delivery seamlessly.',
+      rating: 5
+    },
+    {
+      name: 'Priya Sharma',
+      business: 'Car Care Solutions, Delhi',
+      quote: 'The automated invoicing and payment tracking has saved us hours every week. Highly recommended!',
+      rating: 5
+    },
+    {
+      name: 'Amit Patel',
+      business: 'Premium Auto Works, Bangalore',
+      quote: 'Best investment we made. The dashboard gives us complete visibility into our business performance.',
+      rating: 5
+    }
   ]
 
   return (
@@ -93,17 +219,19 @@ export default function LandingPage() {
           50% { background-position: 100% 50%; }
         }
       `}</style>
-      {/* Navigation */}
+      {/* Sticky Navigation */}
       <nav style={{
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
         zIndex: 50,
-        backgroundColor: '#ffffff',
+        backgroundColor: isScrolled ? 'rgba(255, 255, 255, 0.95)' : '#ffffff',
+        backdropFilter: isScrolled ? 'blur(10px)' : 'none',
         borderBottom: '1px solid #e5e7eb',
-        padding: '1rem 0',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        padding: isScrolled ? '0.75rem 0' : '1rem 0',
+        boxShadow: isScrolled ? '0 4px 6px rgba(0,0,0,0.1)' : '0 1px 3px rgba(0,0,0,0.05)',
+        transition: 'all 0.3s ease'
       }}>
         <div style={{
           maxWidth: '1400px',
@@ -132,7 +260,9 @@ export default function LandingPage() {
                 transition: 'all 0.2s ease',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                minWidth: '120px',
+                justifyContent: 'center'
               }}
               onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.backgroundColor = '#eff6ff'
@@ -143,7 +273,7 @@ export default function LandingPage() {
                 e.currentTarget.style.borderColor = '#2563eb'
               }}
             >
-              Sign In
+              Login
             </button>
             <button
               onClick={() => setShowCreateAccount(true)}
@@ -160,7 +290,9 @@ export default function LandingPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.5rem',
-                boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)'
+                boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
+                minWidth: '120px',
+                justifyContent: 'center'
               }}
               onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
                 e.currentTarget.style.backgroundColor = '#1d4ed8'
@@ -171,7 +303,7 @@ export default function LandingPage() {
                 e.currentTarget.style.boxShadow = '0 1px 2px rgba(37, 99, 235, 0.2)'
               }}
             >
-              Create Account
+              Register
             </button>
             <a
               href="mailto:piyush@sunkool.in"
@@ -188,7 +320,9 @@ export default function LandingPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.5rem',
-                textDecoration: 'none'
+                textDecoration: 'none',
+                minWidth: '120px',
+                justifyContent: 'center'
               }}
               onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => {
                 e.currentTarget.style.backgroundColor = '#f1f5f9'
@@ -202,8 +336,39 @@ export default function LandingPage() {
               }}
             >
               <HelpCircle style={{ width: '1rem', height: '1rem' }} />
-              Support
+              Contact Us
             </a>
+            <button
+              onClick={() => router.push('/about')}
+              style={{
+                padding: '0.625rem 1.5rem',
+                backgroundColor: 'transparent',
+                color: '#64748b',
+                border: '1px solid #e2e8f0',
+                borderRadius: '0.5rem',
+                fontWeight: '600',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                minWidth: '120px',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                e.currentTarget.style.backgroundColor = '#f1f5f9'
+                e.currentTarget.style.borderColor = '#cbd5e1'
+                e.currentTarget.style.color = '#475569'
+              }}
+              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+                e.currentTarget.style.borderColor = '#e2e8f0'
+                e.currentTarget.style.color = '#64748b'
+              }}
+            >
+              About
+            </button>
           </div>
         </div>
       </nav>
@@ -211,23 +376,51 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section style={{
         minHeight: '100vh',
-        backgroundColor: '#f8fafc',
+        background: 'linear-gradient(135deg, #f0f9ff 0%, #ffffff 50%, #f8fafc 100%)',
         display: 'flex',
         alignItems: 'center',
         paddingTop: '5rem',
         position: 'relative',
         overflow: 'hidden'
       }}>
-        {/* Subtle Background Pattern */}
+        {/* Enhanced Background with Gradient and Animated Elements */}
         <div style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           bottom: 0,
-          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.03) 0%, rgba(15, 23, 42, 0.02) 100%)',
+          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.05) 0%, rgba(15, 23, 42, 0.02) 50%, rgba(37, 99, 235, 0.03) 100%)',
+          backgroundSize: '200% 200%',
+          animation: 'gradientShift 15s ease infinite',
           zIndex: 0
         }}></div>
+        {/* Floating Icons Background */}
+        <div style={{
+          position: 'absolute',
+          top: '10%',
+          right: '10%',
+          width: '100px',
+          height: '100px',
+          opacity: 0.1,
+          zIndex: 0,
+          animation: 'float 20s ease-in-out infinite'
+        }}>
+          <Car style={{ width: '100%', height: '100%', color: '#2563eb' }} />
+        </div>
+        <div style={{
+          position: 'absolute',
+          bottom: '15%',
+          left: '5%',
+          width: '80px',
+          height: '80px',
+          opacity: 0.1,
+          zIndex: 0,
+          animation: 'float 25s ease-in-out infinite',
+          animationDelay: '2s'
+        }}>
+          <BarChart3 style={{ width: '100%', height: '100%', color: '#4f46e5' }} />
+        </div>
         <div style={{
           maxWidth: '1200px',
           margin: '0 auto',
@@ -241,43 +434,91 @@ export default function LandingPage() {
         }}>
           {/* Left Content */}
           <div style={{ animation: 'fadeInUp 0.8s ease-out' }}>
+            {/* Social Proof with Partner Logos */}
             <div style={{
-              display: 'inline-block',
-              padding: '0.5rem 1rem',
-              background: '#eff6ff',
-              borderRadius: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
               marginBottom: '1.5rem',
-              fontSize: '0.875rem',
-              color: '#2563eb',
-              fontWeight: '600',
-              border: '1px solid #dbeafe'
+              flexWrap: 'wrap'
             }}>
-              🚀 Trusted by 200+ Car Accessories Businesses
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.5rem 1rem',
+                background: '#eff6ff',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                color: '#2563eb',
+                fontWeight: '600',
+                border: '1px solid #dbeafe'
+              }}>
+                <Star style={{ width: '1rem', height: '1rem', fill: '#fbbf24', color: '#fbbf24' }} />
+                Trusted by 200+ Businesses
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                fontSize: '0.75rem',
+                color: '#6b7280'
+              }}>
+                <span>Partners:</span>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {['AutoHub', 'CarCare', 'PremiumAuto', 'FastTrack'].map((name, i) => (
+                    <div key={i} style={{
+                      padding: '0.25rem 0.75rem',
+                      background: '#f3f4f6',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '500',
+                      color: '#4b5563',
+                      border: '1px solid #e5e7eb'
+                    }}>
+                      {name}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+            
             <h1 style={{
-              fontSize: '3.5rem',
+              fontSize: '3.75rem',
               fontWeight: '800',
               color: '#0f172a',
               margin: '0 0 1.5rem 0',
               lineHeight: '1.1',
-              letterSpacing: '-0.02em'
+              letterSpacing: '-0.03em'
             }}>
-              Transform Your Business with
+              Zoravo OMS — The Complete
               <br />
               <span style={{ 
-                color: '#2563eb'
+                background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text'
               }}>
-                Smart Operations Management
+                Car Accessories Business Suite
               </span>
             </h1>
             <p style={{
-              fontSize: '1.25rem',
+              fontSize: '1.375rem',
+              color: '#475569',
+              margin: '0 0 1rem 0',
+              lineHeight: '1.7',
+              fontWeight: '500'
+            }}>
+              Streamline Your Car Accessories Business — From Job Intake to Delivery, Seamlessly.
+            </p>
+            <p style={{
+              fontSize: '1.125rem',
               color: '#64748b',
               margin: '0 0 2rem 0',
               lineHeight: '1.7',
               fontWeight: '400'
             }}>
-              Zoravo OMS digitizes your entire workflow—from vehicle intake to delivery, installation tracking, invoicing, and service follow-ups. Run your operations with <strong style={{ color: '#1e293b' }}>speed, clarity, and complete control</strong>.
+              Manage jobs, track vehicles, and get paid faster with one powerful system. Run your operations with <strong style={{ color: '#1e293b' }}>speed, clarity, and complete control</strong>.
             </p>
             
             {/* Key Benefits */}
@@ -321,47 +562,51 @@ export default function LandingPage() {
               <button
                 onClick={() => setShowCreateAccount(true)}
                 style={{
-                  padding: '1rem 2rem',
-                  backgroundColor: '#2563eb',
+                  padding: '1rem 2.5rem',
+                  background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '0.5rem',
-                  fontWeight: '600',
-                  fontSize: '1rem',
+                  borderRadius: '0.75rem',
+                  fontWeight: '700',
+                  fontSize: '1.125rem',
                   cursor: 'pointer',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.75rem',
-                  boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)'
+                  boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
                 }}
                 onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                  e.currentTarget.style.backgroundColor = '#1d4ed8'
-                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(37, 99, 235, 0.3)'
-                  e.currentTarget.style.transform = 'translateY(-1px)'
+                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)'
+                  e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.5)'
                 }}
                 onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                  e.currentTarget.style.backgroundColor = '#2563eb'
-                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(37, 99, 235, 0.2)'
-                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.transform = 'translateY(0) scale(1)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.4)'
                 }}
               >
-                Start Your Business
+                🚀 Start Free Trial
                 <ArrowRight style={{ width: '1.25rem', height: '1.25rem' }} />
               </button>
               
               <button
-                onClick={() => router.push('/login')}
+                onClick={() => {
+                  // Scroll to dashboard preview or show demo
+                  const dashboardSection = document.getElementById('dashboard-preview')
+                  if (dashboardSection) {
+                    dashboardSection.scrollIntoView({ behavior: 'smooth' })
+                  }
+                }}
                 style={{
                   padding: '1rem 2rem',
                   backgroundColor: 'white',
                   color: '#2563eb',
                   border: '1.5px solid #2563eb',
-                  borderRadius: '0.5rem',
+                  borderRadius: '0.75rem',
                   fontWeight: '600',
                   fontSize: '1rem',
                   cursor: 'pointer',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.75rem'
@@ -370,7 +615,7 @@ export default function LandingPage() {
                   e.currentTarget.style.backgroundColor = '#eff6ff'
                   e.currentTarget.style.borderColor = '#1d4ed8'
                   e.currentTarget.style.color = '#1d4ed8'
-                  e.currentTarget.style.transform = 'translateY(-1px)'
+                  e.currentTarget.style.transform = 'translateY(-2px)'
                 }}
                 onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.currentTarget.style.backgroundColor = 'white'
@@ -379,21 +624,35 @@ export default function LandingPage() {
                   e.currentTarget.style.transform = 'translateY(0)'
                 }}
               >
-                Sign In
+                <Play style={{ width: '1.25rem', height: '1.25rem', fill: '#2563eb' }} />
+                Watch Demo
               </button>
             </div>
 
           </div>
 
           {/* Right Content - Dashboard Preview */}
-          <div style={{
-            position: 'relative',
-            backgroundColor: 'white',
-            borderRadius: '0.75rem',
-            padding: '2rem',
-            border: '1px solid #e5e7eb',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.05)'
-          }}>
+          <div 
+            id="dashboard-preview"
+            style={{
+              position: 'relative',
+              backgroundColor: 'white',
+              borderRadius: '1rem',
+              padding: '2rem',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+              animation: 'fadeInUp 1s ease-out 0.3s both',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)'
+              e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.15)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.1)'
+            }}
+          >
             <div style={{
               backgroundColor: 'transparent',
               borderRadius: '0.5rem',
@@ -439,42 +698,326 @@ export default function LandingPage() {
                 ))}
               </div>
               
+              {/* Enhanced Revenue Chart with Mini Visualization */}
               <div style={{
-                height: '120px',
-                backgroundColor: '#f3f4f6',
+                height: '140px',
+                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
                 borderRadius: '0.5rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#6b7280',
-                fontSize: '0.875rem'
+                padding: '1rem',
+                border: '1px solid #e2e8f0',
+                position: 'relative',
+                overflow: 'hidden'
               }}>
-                📊 Revenue Chart Preview
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '100%', gap: '0.5rem' }}>
+                  {[65, 80, 55, 90, 75, 85, 70].map((height, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        flex: 1,
+                        height: `${height}%`,
+                        background: 'linear-gradient(180deg, #2563eb 0%, #4f46e5 100%)',
+                        borderRadius: '0.25rem 0.25rem 0 0',
+                        minWidth: '20px',
+                        animation: `fadeInUp 0.6s ease-out ${i * 0.1}s both`,
+                        position: 'relative',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '0.8'
+                        e.currentTarget.style.transform = 'scaleY(1.1)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.transform = 'scaleY(1)'
+                      }}
+                      title={`Revenue: ₹${(height * 1000).toLocaleString()}`}
+                    />
+                  ))}
+                </div>
+                <div style={{
+                  position: 'absolute',
+                  bottom: '0.5rem',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  fontSize: '0.75rem',
+                  color: '#6b7280',
+                  fontWeight: '500'
+                }}>
+                  Revenue Trend → View more details
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Modules Section */}
-      <section style={{ padding: '4rem 2rem', backgroundColor: '#ffffff' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Purpose‑Built Modules</h2>
-            <p style={{ color: '#64748b', marginTop: '0.5rem' }}>Everything your team needs—connected in one place.</p>
+      {/* Features Section - Reorganized into 3 Tiers */}
+      <section id="features" style={{
+        padding: '4rem 2rem',
+        backgroundColor: '#ffffff'
+      }}>
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto'
+        }}>
+          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+            <h2 style={{
+              fontSize: '2.5rem',
+              fontWeight: '800',
+              color: '#0f172a',
+              margin: '0 0 0.75rem 0',
+              letterSpacing: '-0.02em'
+            }}>
+              Everything You Need to Manage Your Business
+            </h2>
+            <p style={{
+              fontSize: '1.125rem',
+              color: '#64748b',
+              maxWidth: '700px',
+              margin: '0 auto',
+              lineHeight: '1.6'
+            }}>
+              Our comprehensive platform provides all the tools you need to efficiently manage 
+              your car accessories business from start to finish.
+            </p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-            {[{label:'Recent Vehicles',desc:'Live workshop view for installers and coordinators.'},{label:'Recent Invoices',desc:'Accountant‑ready invoice previews and totals.'},{label:'Trackers',desc:'Call follow‑ups and service tracker for after‑sales.'},{label:'Settings',desc:'Locations, departments, users and company profile.'}].map((m,i)=> (
-              <div key={i} style={{ border:'1px solid #e5e7eb', borderRadius:'0.75rem', padding:'1rem', background:'#f9fafb' }}>
-                <div style={{ fontWeight:700, color:'#111827', marginBottom:'0.25rem' }}>{m.label}</div>
-                <div style={{ color:'#6b7280', fontSize:'0.9rem' }}>{m.desc}</div>
-              </div>
-            ))}
+
+          {/* Core Modules */}
+          <div style={{ marginBottom: '3rem' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.75rem', 
+              marginBottom: '1.5rem',
+              paddingBottom: '0.75rem',
+              borderBottom: '2px solid #e5e7eb'
+            }}>
+              <Target style={{ width: '1.5rem', height: '1.5rem', color: '#2563eb' }} />
+              <h3 style={{ fontSize: '1.375rem', fontWeight: '700', color: '#1f2937', margin: 0 }}>
+                Core Modules
+              </h3>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '2rem'
+            }}>
+              {coreModules.map((feature, index) => (
+                <div key={index} style={{
+                  padding: '2rem',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '1rem',
+                  border: '1px solid #e5e7eb',
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer',
+                  position: 'relative'
+                }}
+                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(-6px)'
+                  e.currentTarget.style.boxShadow = '0 12px 30px rgba(37, 99, 235, 0.15)'
+                  e.currentTarget.style.borderColor = '#2563eb'
+                  e.currentTarget.style.backgroundColor = '#ffffff'
+                }}
+                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
+                  e.currentTarget.style.borderColor = '#e5e7eb'
+                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                }}
+                >
+                  <div style={{
+                    width: '3.5rem',
+                    height: '3.5rem',
+                    borderRadius: '0.875rem',
+                    background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '1.5rem',
+                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
+                  }}>
+                    <feature.icon style={{ color: 'white', width: '1.75rem', height: '1.75rem' }} />
+                  </div>
+                  <h3 style={{
+                    fontSize: '1.375rem',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    margin: '0 0 0.75rem 0',
+                    lineHeight: '1.3'
+                  }}>
+                    {feature.title}
+                  </h3>
+                  <p style={{
+                    fontSize: '0.9375rem',
+                    color: '#6b7280',
+                    lineHeight: '1.7',
+                    margin: '0'
+                  }}>
+                    {feature.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Growth Tools */}
+          <div style={{ marginBottom: '3rem' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.75rem', 
+              marginBottom: '2rem',
+              paddingBottom: '1rem',
+              borderBottom: '2px solid #e5e7eb'
+            }}>
+              <TrendingUp style={{ width: '1.5rem', height: '1.5rem', color: '#059669' }} />
+              <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', margin: 0 }}>
+                Growth Tools
+              </h3>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '2rem'
+            }}>
+              {growthTools.map((feature, index) => (
+                <div key={index} style={{
+                  padding: '2rem',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '1rem',
+                  border: '1px solid #e5e7eb',
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(-6px)'
+                  e.currentTarget.style.boxShadow = '0 12px 30px rgba(5, 150, 105, 0.15)'
+                  e.currentTarget.style.borderColor = '#059669'
+                  e.currentTarget.style.backgroundColor = '#ffffff'
+                }}
+                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
+                  e.currentTarget.style.borderColor = '#e5e7eb'
+                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                }}
+                >
+                  <div style={{
+                    width: '3.5rem',
+                    height: '3.5rem',
+                    borderRadius: '0.875rem',
+                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '1.5rem',
+                    boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)'
+                  }}>
+                    <feature.icon style={{ color: 'white', width: '1.75rem', height: '1.75rem' }} />
+                  </div>
+                  <h3 style={{
+                    fontSize: '1.375rem',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    margin: '0 0 0.75rem 0',
+                    lineHeight: '1.3'
+                  }}>
+                    {feature.title}
+                  </h3>
+                  <p style={{
+                    fontSize: '0.9375rem',
+                    color: '#6b7280',
+                    lineHeight: '1.7',
+                    margin: '0'
+                  }}>
+                    {feature.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Team Tools */}
+          <div>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.75rem', 
+              marginBottom: '2rem',
+              paddingBottom: '1rem',
+              borderBottom: '2px solid #e5e7eb'
+            }}>
+              <Users style={{ width: '1.5rem', height: '1.5rem', color: '#7c3aed' }} />
+              <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', margin: 0 }}>
+                Team Tools
+              </h3>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '2rem'
+            }}>
+              {teamTools.map((feature, index) => (
+                <div key={index} style={{
+                  padding: '2rem',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '1rem',
+                  border: '1px solid #e5e7eb',
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(-6px)'
+                  e.currentTarget.style.boxShadow = '0 12px 30px rgba(124, 58, 237, 0.15)'
+                  e.currentTarget.style.borderColor = '#7c3aed'
+                  e.currentTarget.style.backgroundColor = '#ffffff'
+                }}
+                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
+                  e.currentTarget.style.borderColor = '#e5e7eb'
+                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                }}
+                >
+                  <div style={{
+                    width: '3.5rem',
+                    height: '3.5rem',
+                    borderRadius: '0.875rem',
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '1.5rem',
+                    boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)'
+                  }}>
+                    <feature.icon style={{ color: 'white', width: '1.75rem', height: '1.75rem' }} />
+                  </div>
+                  <h3 style={{
+                    fontSize: '1.375rem',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    margin: '0 0 0.75rem 0',
+                    lineHeight: '1.3'
+                  }}>
+                    {feature.title}
+                  </h3>
+                  <p style={{
+                    fontSize: '0.9375rem',
+                    color: '#6b7280',
+                    lineHeight: '1.7',
+                    margin: '0'
+                  }}>
+                    {feature.description}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Stats Section */}
+      {/* Stats Section with Animated Counters */}
       <section style={{
         padding: '4rem 2rem',
         backgroundColor: '#f8fafc'
@@ -489,126 +1032,404 @@ export default function LandingPage() {
           {stats.map((stat, index) => (
             <div key={index} style={{
               textAlign: 'center',
-              padding: '2rem',
+              padding: '2.5rem 2rem',
               backgroundColor: 'white',
-              borderRadius: '1rem',
-              boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
-              border: '1px solid #e5e7eb'
-            }}>
+              borderRadius: '1.25rem',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              border: '1px solid #e5e7eb',
+              transition: 'all 0.3s ease',
+              animation: `fadeInUp 0.8s ease-out ${index * 0.1}s both`
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-4px)'
+              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.12)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
+            }}
+            >
               <div style={{
-                width: '3rem',
-                height: '3rem',
-                margin: '0 auto 1rem auto',
+                width: '3.5rem',
+                height: '3.5rem',
+                margin: '0 auto 1.25rem auto',
                 borderRadius: '50%',
                 background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
               }}>
-                <stat.icon style={{ color: 'white', width: '1.5rem', height: '1.5rem' }} />
+                <stat.icon style={{ color: 'white', width: '1.75rem', height: '1.75rem' }} />
               </div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>
-                {stat.value}
+              <div style={{ 
+                fontSize: '2.5rem', 
+                fontWeight: '800', 
+                color: '#1f2937', 
+                marginBottom: '0.5rem',
+                lineHeight: '1.2'
+              }}>
+                {stat.value.toLocaleString()}+
               </div>
-              <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+              <div style={{ 
+                fontSize: '1rem', 
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: '0.375rem'
+              }}>
                 {stat.label}
+              </div>
+              <div style={{ 
+                fontSize: '0.8125rem', 
+                color: '#6b7280',
+                lineHeight: '1.5'
+              }}>
+                {stat.context}
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" style={{
-        padding: '6rem 2rem',
-        backgroundColor: '#ffffff'
+      {/* Testimonials Section */}
+      <section style={{
+        padding: '4rem 2rem',
+        backgroundColor: '#f8fafc'
       }}>
         <div style={{
           maxWidth: '1200px',
           margin: '0 auto'
         }}>
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
             <h2 style={{
               fontSize: '2.5rem',
-              fontWeight: 'bold',
-              color: '#1f2937',
-              margin: '0 0 1rem 0'
+              fontWeight: '800',
+              color: '#0f172a',
+              margin: '0 0 1rem 0',
+              letterSpacing: '-0.02em'
             }}>
-              Everything You Need to Manage Your Business
+              Loved by Businesses Nationwide
             </h2>
             <p style={{
               fontSize: '1.125rem',
-              color: '#6b7280',
+              color: '#64748b',
               maxWidth: '600px',
               margin: '0 auto'
             }}>
-              Our comprehensive platform provides all the tools you need to efficiently manage 
-              your car accessories business from start to finish.
+              See what our customers have to say about their experience with Zoravo OMS
             </p>
           </div>
-
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '2rem'
           }}>
-            {features.map((feature, index) => (
+            {testimonials.map((testimonial, index) => (
               <div key={index} style={{
                 padding: '2rem',
-                backgroundColor: '#f9fafb',
+                backgroundColor: 'white',
                 borderRadius: '1rem',
                 border: '1px solid #e5e7eb',
-                transition: 'all 0.2s',
-                cursor: 'pointer'
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                transition: 'all 0.3s ease'
               }}
-              onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-4px)'
-                e.currentTarget.style.boxShadow = '0 10px 25px rgba(0,0,0,0.1)'
-                e.currentTarget.style.borderColor = '#2563eb'
+                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.12)'
               }}
-              onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)'
-                e.currentTarget.style.boxShadow = 'none'
-                e.currentTarget.style.borderColor = '#e5e7eb'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
               }}
               >
-                <div style={{
-                  width: '3rem',
-                  height: '3rem',
-                  borderRadius: '0.75rem',
-                  background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: '1.5rem'
-                }}>
-                  <feature.icon style={{ color: 'white', width: '1.5rem', height: '1.5rem' }} />
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                  {[...Array(testimonial.rating)].map((_, i) => (
+                    <Star key={i} style={{ width: '1.25rem', height: '1.25rem', fill: '#fbbf24', color: '#fbbf24' }} />
+                  ))}
                 </div>
-                <h3 style={{
-                  fontSize: '1.25rem',
-                  fontWeight: '600',
-                  color: '#1f2937',
-                  margin: '0 0 0.75rem 0'
-                }}>
-                  {feature.title}
-                </h3>
                 <p style={{
-                  fontSize: '0.875rem',
-                  color: '#6b7280',
-                  lineHeight: '1.6',
-                  margin: '0'
+                  fontSize: '1rem',
+                  color: '#374151',
+                  lineHeight: '1.7',
+                  margin: '0 0 1.5rem 0',
+                  fontStyle: 'italic'
                 }}>
-                  {feature.description}
+                  "{testimonial.quote}"
                 </p>
+                <div>
+                  <div style={{
+                    fontSize: '1rem',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    marginBottom: '0.25rem'
+                  }}>
+                    {testimonial.name}
+                  </div>
+                  <div style={{
+                    fontSize: '0.875rem',
+                    color: '#6b7280'
+                  }}>
+                    {testimonial.business}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* About Zoravo OMS Section */}
+      <section style={{
+        padding: '4rem 2rem',
+        backgroundColor: '#ffffff'
+      }}>
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto'
+        }}>
+          <h2 style={{
+            fontSize: '2.25rem',
+            fontWeight: '800',
+            color: '#0f172a',
+            margin: '0 0 2rem 0',
+            letterSpacing: '-0.02em',
+            textAlign: 'center'
+          }}>
+            About Zoravo OMS
+          </h2>
+
+          {/* Information Card */}
+          <div style={{
+            backgroundColor: '#f9fafb',
+            borderRadius: '1rem',
+            padding: '2rem',
+            border: '1px solid #e5e7eb',
+            marginBottom: '2rem',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '200px 1fr',
+              gap: '2rem',
+              rowGap: '1.5rem'
+            }}>
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500'
+              }}>
+                Application
+              </div>
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#1f2937',
+                fontWeight: '500'
+              }}>
+                Zoravo OMS
+              </div>
+
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500'
+              }}>
+                Industry
+              </div>
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#1f2937',
+                fontWeight: '500'
+              }}>
+                Automotive Service & Accessories Management
+              </div>
+
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <Code style={{ width: '1rem', height: '1rem' }} />
+                Developed By
+              </div>
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#1f2937',
+                fontWeight: '500'
+              }}>
+                Raghav Sukhadia
+              </div>
+
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <Mail style={{ width: '1rem', height: '1rem' }} />
+                Support
+              </div>
+              <div>
+                <a
+                  href="mailto:piyush@sunkool.in"
+                  style={{
+                    fontSize: '0.9375rem',
+                    color: '#2563eb',
+                    fontWeight: '500',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#1d4ed8'
+                    e.currentTarget.style.textDecoration = 'underline'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#2563eb'
+                    e.currentTarget.style.textDecoration = 'none'
+                  }}
+                >
+                  piyush@sunkool.in
+                </a>
+              </div>
+
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <MapPin style={{ width: '1rem', height: '1rem' }} />
+                Location
+              </div>
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#1f2937',
+                fontWeight: '500'
+              }}>
+                Sunkool Solutions, Nagpur, India
+              </div>
+
+              <div style={{
+                fontSize: '0.9375rem',
+                color: '#6b7280',
+                fontWeight: '500'
+              }}>
+                Connect
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: '1.5rem',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}>
+                <a
+                  href="https://www.instagram.com/sunkool_india?igsh=a3BheDM5OGJmN2p6"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: '0.9375rem',
+                    color: '#2563eb',
+                    fontWeight: '500',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#E4405F'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#2563eb'
+                  }}
+                >
+                  <Instagram style={{ width: '1rem', height: '1rem' }} />
+                  Instagram
+                </a>
+                <a
+                  href="https://www.facebook.com/sunkoolindia/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: '0.9375rem',
+                    color: '#2563eb',
+                    fontWeight: '500',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#1877F2'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#2563eb'
+                  }}
+                >
+                  <Facebook style={{ width: '1rem', height: '1rem' }} />
+                  Facebook
+                </a>
+                <a
+                  href="https://www.youtube.com/@sunkool"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: '0.9375rem',
+                    color: '#2563eb',
+                    fontWeight: '500',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#FF0000'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#2563eb'
+                  }}
+                >
+                  <Youtube style={{ width: '1rem', height: '1rem' }} />
+                  YouTube
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Our Mission Section */}
+          <div>
+            <h3 style={{
+              fontSize: '1.875rem',
+              fontWeight: '700',
+              color: '#0f172a',
+              margin: '0 0 1.5rem 0'
+            }}>
+              Our Mission
+            </h3>
+            <p style={{
+              fontSize: '1.125rem',
+              color: '#475569',
+              lineHeight: '1.8',
+              margin: 0,
+              maxWidth: '900px'
+            }}>
+              Zoravo OMS was built to revolutionize how automotive service businesses operate. We combine cutting-edge technology with deep industry knowledge to deliver a solution that's powerful, intuitive, and designed to scale with your business. From small shops to large operations, Zoravo helps you work smarter, serve customers better, and grow faster.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section style={{
-        padding: '6rem 2rem',
+        padding: '4rem 2rem',
         backgroundColor: '#0f172a',
         color: 'white'
       }}>
@@ -618,16 +1439,16 @@ export default function LandingPage() {
           textAlign: 'center'
         }}>
           <h2 style={{
-            fontSize: '2.5rem',
+            fontSize: '2.25rem',
             fontWeight: 'bold',
-            margin: '0 0 1.5rem 0'
+            margin: '0 0 1rem 0'
           }}>
             Ready to Transform Your Business?
           </h2>
           <p style={{
-            fontSize: '1.125rem',
-            color: 'rgba(255,255,255,0.8)',
-            margin: '0 0 2rem 0',
+            fontSize: '1rem',
+            color: 'rgba(255,255,255,0.9)',
+            margin: '0 0 1.5rem 0',
             lineHeight: '1.6'
           }}>
             Join hundreds of car accessories businesses already using Zoravo OMS 
@@ -685,30 +1506,344 @@ export default function LandingPage() {
                 e.currentTarget.style.transform = 'translateY(0)'
               }}
             >
-              Sign In
+              Login
             </button>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Enhanced Footer */}
       <footer style={{
-        padding: '2rem',
-        backgroundColor: '#111827',
-        color: 'white',
-        textAlign: 'center'
+        padding: '4rem 2rem 2rem',
+        backgroundColor: '#1a1a1a',
+        color: 'white'
       }}>
         <div style={{
           maxWidth: '1200px',
-          margin: '0 auto',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
+          margin: '0 auto'
         }}>
-          <Logo size="medium" showText={true} variant="light" />
-          <p style={{ margin: 0, fontSize: '0.875rem', color: '#9ca3af' }}>
-            © 2024 Zoravo OMS. All rights reserved.
-          </p>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '2fr 1fr 1fr 1fr',
+            gap: '3rem',
+            marginBottom: '3rem',
+            paddingBottom: '3rem'
+          }}>
+            {/* Brand Column */}
+            <div>
+              <Logo size="medium" showText={true} variant="light" />
+              <p style={{
+                margin: '1rem 0 0 0',
+                fontSize: '0.9375rem',
+                color: '#9ca3af',
+                lineHeight: '1.7',
+                maxWidth: '300px'
+              }}>
+                Zoravo OMS – Empowering Car Accessories Businesses Since 2024.
+              </p>
+              <div style={{
+                display: 'flex',
+                gap: '1rem',
+                marginTop: '1.5rem'
+              }}>
+                <a
+                  href="https://linkedin.com/company/zoravo"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    width: '2.5rem',
+                    height: '2.5rem',
+                    borderRadius: '0.5rem',
+                    background: '#374151',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#2563eb'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#374151'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <Linkedin style={{ width: '1.25rem', height: '1.25rem' }} />
+                </a>
+                <a
+                  href="https://www.instagram.com/sunkool_india?igsh=a3BheDM5OGJmN2p6"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    width: '2.5rem',
+                    height: '2.5rem',
+                    borderRadius: '0.5rem',
+                    background: '#374151',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#E4405F'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#374151'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <Instagram style={{ width: '1.25rem', height: '1.25rem' }} />
+                </a>
+                <a
+                  href="https://www.facebook.com/sunkoolindia/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    width: '2.5rem',
+                    height: '2.5rem',
+                    borderRadius: '0.5rem',
+                    background: '#374151',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#1877F2'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#374151'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <Facebook style={{ width: '1.25rem', height: '1.25rem' }} />
+                </a>
+                <a
+                  href="https://www.youtube.com/@sunkool"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    width: '2.5rem',
+                    height: '2.5rem',
+                    borderRadius: '0.5rem',
+                    background: '#374151',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#FF0000'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#374151'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <Youtube style={{ width: '1.25rem', height: '1.25rem' }} />
+                </a>
+              </div>
+            </div>
+
+            {/* Company Links */}
+            <div>
+              <h4 style={{
+                fontSize: '1rem',
+                fontWeight: '700',
+                color: 'white',
+                margin: '0 0 1rem 0'
+              }}>
+                Company
+              </h4>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem'
+              }}>
+                <a
+                  href="/about"
+                  style={{
+                    fontSize: '0.875rem',
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#9ca3af'
+                  }}
+                >
+                  About
+                </a>
+                <a
+                  href="/pricing"
+                  style={{
+                    fontSize: '0.875rem',
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#9ca3af'
+                  }}
+                >
+                  Pricing
+                </a>
+                <a
+                  href="mailto:piyush@sunkool.in?subject=Support Request&body=Hello,%0D%0A%0D%0AI need assistance with Zoravo OMS.%0D%0A%0D%0AThank you."
+                  style={{
+                    fontSize: '0.875rem',
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#9ca3af'
+                  }}
+                >
+                  Support
+                </a>
+                <a
+                  href="mailto:piyush@sunkool.in?subject=Contact Request&body=Hello,%0D%0A%0D%0AI would like to get in touch regarding Zoravo OMS.%0D%0A%0D%0AThank you."
+                  style={{
+                    fontSize: '0.875rem',
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#9ca3af'
+                  }}
+                >
+                  Contact
+                </a>
+              </div>
+            </div>
+
+            {/* Product Links */}
+            <div>
+              <h4 style={{
+                fontSize: '1rem',
+                fontWeight: '700',
+                color: 'white',
+                margin: '0 0 1rem 0'
+              }}>
+                Product
+              </h4>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem'
+              }}>
+                {['Features', 'Modules', 'Integrations', 'API', 'Roadmap'].map((link) => (
+                  <a
+                    key={link}
+                    href="#"
+                    style={{
+                      fontSize: '0.875rem',
+                      color: '#9ca3af',
+                      textDecoration: 'none',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'white'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#9ca3af'
+                    }}
+                  >
+                    {link}
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* Resources Links */}
+            <div>
+              <h4 style={{
+                fontSize: '1rem',
+                fontWeight: '700',
+                color: 'white',
+                margin: '0 0 1rem 0'
+              }}>
+                Resources
+              </h4>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem'
+              }}>
+                {['Blog', 'Case Studies', 'Help Center', 'Community', 'Status'].map((link) => (
+                  <a
+                    key={link}
+                    href="#"
+                    style={{
+                      fontSize: '0.875rem',
+                      color: '#9ca3af',
+                      textDecoration: 'none',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'white'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#9ca3af'
+                    }}
+                  >
+                    {link}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Copyright */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingTop: '2rem'
+          }}>
+            <p style={{
+              margin: 0,
+              fontSize: '0.875rem',
+              color: '#6b7280'
+            }}>
+              © 2024 Zoravo OMS. All rights reserved.
+            </p>
+            <div style={{
+              display: 'flex',
+              gap: '2rem',
+              fontSize: '0.875rem',
+              color: '#6b7280'
+            }}>
+              <a href="#" style={{ color: '#6b7280', textDecoration: 'none' }}>Privacy Policy</a>
+              <a href="#" style={{ color: '#6b7280', textDecoration: 'none' }}>Terms of Service</a>
+            </div>
+          </div>
         </div>
       </footer>
 

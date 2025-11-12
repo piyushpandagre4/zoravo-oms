@@ -36,6 +36,12 @@ export interface NotificationMessage {
   message: string
   templateId?: string // For template messages
   variables?: Record<string, string> // Template variables
+  attachment?: {
+    type: 'document' | 'image' | 'video'
+    filename: string
+    data: Buffer | string // Base64 encoded file data
+    mimeType?: string
+  }
 }
 
 export interface WorkflowEvent {
@@ -71,76 +77,98 @@ class WhatsAppService {
    */
   async loadConfig(supabase: any, tenantId?: string | null): Promise<WhatsAppConfig | null> {
     try {
-      let query = supabase
+      // Helper function to parse config from settings data
+      const parseConfig = (data: any[]): WhatsAppConfig | null => {
+        if (!data || data.length === 0) {
+          return null
+        }
+
+        const config: Partial<WhatsAppConfig> = { enabled: false }
+        
+        data.forEach((setting: any) => {
+          const key = setting.setting_key.replace('whatsapp_', '')
+          const value = setting.setting_value || ''
+          
+          // Map database keys to config properties
+          switch (key) {
+            case 'enabled':
+              config.enabled = value === 'true'
+              break
+            case 'provider':
+              config.provider = value as any
+              break
+            case 'user_id':
+              config.userId = value
+              break
+            case 'password':
+              config.password = value
+              break
+            case 'api_key':
+              config.apiKey = value
+              break
+            case 'api_secret':
+              config.apiSecret = value
+              break
+            case 'from_number':
+              config.fromNumber = value
+              break
+            case 'account_sid':
+              config.accountSid = value
+              break
+            case 'auth_token':
+              config.authToken = value
+              break
+            case 'business_account_id':
+              config.businessAccountId = value
+              break
+            case 'access_token':
+              config.accessToken = value
+              break
+            case 'webhook_url':
+              config.webhookUrl = value
+              break
+          }
+        })
+
+        return config as WhatsAppConfig
+      }
+
+      // Try tenant-specific config first if tenantId is provided
+      if (tenantId) {
+        const { data: tenantData, error: tenantError } = await supabase
+          .from('system_settings')
+          .select('*')
+          .eq('setting_group', 'whatsapp_notifications')
+          .eq('tenant_id', tenantId)
+        
+        if (!tenantError && tenantData && tenantData.length > 0) {
+          const config = parseConfig(tenantData)
+          if (config) {
+            this.config = config
+            return this.config
+          }
+        }
+        
+        // If tenant-specific config not found, try global config
+        console.log(`[WhatsApp] Tenant-specific config not found for ${tenantId}, trying global config...`)
+      }
+      
+      // Load global settings (null tenant_id)
+      const { data, error } = await supabase
         .from('system_settings')
         .select('*')
         .eq('setting_group', 'whatsapp_notifications')
-      
-      // Add tenant filter if tenantId is provided
-      if (tenantId) {
-        query = query.eq('tenant_id', tenantId)
-      } else {
-        // If no tenant, load global settings (null tenant_id)
-        query = query.is('tenant_id', null)
-      }
-      
-      const { data, error } = await query
+        .is('tenant_id', null)
       
       if (error) throw error
       
-      if (!data || data.length === 0) {
-        return null
+      const config = parseConfig(data || [])
+      if (config) {
+        this.config = config
+        return this.config
       }
 
-      const config: Partial<WhatsAppConfig> = { enabled: false }
-      
-      data.forEach((setting: any) => {
-        const key = setting.setting_key.replace('whatsapp_', '')
-        const value = setting.setting_value || ''
-        
-        // Map database keys to config properties
-        switch (key) {
-          case 'enabled':
-            config.enabled = value === 'true'
-            break
-          case 'provider':
-            config.provider = value as any
-            break
-          case 'user_id':
-            config.userId = value
-            break
-          case 'password':
-            config.password = value
-            break
-          case 'api_key':
-            config.apiKey = value
-            break
-          case 'api_secret':
-            config.apiSecret = value
-            break
-          case 'from_number':
-            config.fromNumber = value
-            break
-          case 'account_sid':
-            config.accountSid = value
-            break
-          case 'auth_token':
-            config.authToken = value
-            break
-          case 'business_account_id':
-            config.businessAccountId = value
-            break
-          case 'access_token':
-            config.accessToken = value
-            break
-          case 'webhook_url':
-            config.webhookUrl = value
-            break
-        }
-      })
-
-      this.config = config as WhatsAppConfig
-      return this.config
+      return null
     } catch (error) {
       console.error('Error loading WhatsApp config:', error)
       return null
@@ -173,7 +201,7 @@ class WhatsAppService {
   }
 
   /**
-   * Send WhatsApp message
+   * Send WhatsApp message (with optional file attachment)
    */
   async sendMessage(message: NotificationMessage): Promise<{ success: boolean; error?: string }> {
     if (!this.config || !this.config.enabled) {
@@ -197,6 +225,27 @@ class WhatsAppService {
       console.error('Error sending WhatsApp message:', error)
       return { success: false, error: error.message || 'Failed to send message' }
     }
+  }
+
+  /**
+   * Send WhatsApp message with PDF document
+   */
+  async sendDocument(
+    to: string,
+    message: string,
+    pdfBuffer: Buffer,
+    filename: string
+  ): Promise<{ success: boolean; error?: string }> {
+    return await this.sendMessage({
+      to,
+      message,
+      attachment: {
+        type: 'document',
+        filename,
+        data: pdfBuffer.toString('base64'),
+        mimeType: 'application/pdf'
+      }
+    })
   }
 
   /**
@@ -310,6 +359,7 @@ class WhatsAppService {
   /**
    * Send via MessageAutoSender API
    * Uses Next.js API route to avoid CORS issues
+   * Supports text messages and document attachments
    */
   private async sendViaMessageAutoSender(message: NotificationMessage): Promise<{ success: boolean; error?: string }> {
     if (!this.config?.apiKey || !this.config?.userId || !this.config?.password) {
@@ -323,36 +373,38 @@ class WhatsAppService {
       // Normalize phone number - ensure it has country code
       const phoneNumber = this.normalizePhoneNumber(message.to)
       
-      console.log('[WhatsApp] Sending to:', phoneNumber, 'via API proxy')
+      const requestBody: any = {
+        provider: 'messageautosender',
+        config: {
+          apiKey: this.config.apiKey,
+          userId: this.config.userId,
+          password: this.config.password,
+          webhookUrl: this.config.webhookUrl || 'https://app.messageautosender.com/api/whatsapp/send',
+        },
+        to: message.to, // Send original, normalization happens on server
+        message: message.message,
+      }
+
+      // Add attachment if provided
+      if (message.attachment) {
+        requestBody.attachment = message.attachment
+      }
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          provider: 'messageautosender',
-          config: {
-            apiKey: this.config.apiKey,
-            userId: this.config.userId,
-            password: this.config.password,
-            webhookUrl: this.config.webhookUrl || 'https://app.messageautosender.com/api/whatsapp/send',
-          },
-          to: message.to, // Send original, normalization happens on server
-          message: message.message,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       const result = await response.json()
-      console.log('[WhatsApp] API response:', result)
 
       if (!response.ok || !result.success) {
         const errorMsg = result.error || `HTTP ${response.status}: ${response.statusText}`
         console.error('[WhatsApp] Send failed:', errorMsg)
         return { success: false, error: errorMsg }
       }
-
-      console.log('[WhatsApp] Message sent successfully')
       return { success: true }
     } catch (error: any) {
       console.error('[WhatsApp] Exception:', error)
@@ -471,7 +523,7 @@ class WhatsAppService {
   ): Promise<{ sent: number; failed: number; errors: string[] }> {
     const results = { sent: 0, failed: 0, errors: [] as string[] }
 
-    console.log('[WhatsApp] Sending workflow notification:', event.type, 'to', recipients.length, 'recipients')
+    // Send workflow notification to recipients
 
     // Check if WhatsApp is enabled
     if (!this.config?.enabled) {
@@ -496,7 +548,6 @@ class WhatsAppService {
       }
 
       const message = this.generateWorkflowMessage(event, recipient, supabase)
-      console.log('[WhatsApp] Sending to', recipient.phoneNumber, 'Role:', recipient.role)
       
       const result = await this.sendMessage({
         to: recipient.phoneNumber,
@@ -505,7 +556,6 @@ class WhatsAppService {
 
       if (result.success) {
         results.sent++
-        console.log('[WhatsApp] ✓ Sent to', recipient.phoneNumber)
       } else {
         results.failed++
         const errorMsg = `${recipient.name || recipient.userId} (${recipient.phoneNumber}): ${result.error}`
@@ -514,7 +564,6 @@ class WhatsAppService {
       }
     }
 
-    console.log('[WhatsApp] Notification complete:', results.sent, 'sent,', results.failed, 'failed')
     return results
   }
 }

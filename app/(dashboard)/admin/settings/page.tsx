@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, Save, Globe, Shield, DollarSign, Clock, Plus, Trash2, Edit, X } from 'lucide-react'
+import { Settings, Save, Globe, Shield, DollarSign, Clock, Plus, Trash2, Edit, X, Mail, Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface SubscriptionPlan {
@@ -24,6 +24,13 @@ interface PlatformSettings {
   defaultTrialDays: number
   defaultCurrency: string
   subscriptionPlans: SubscriptionPlan[]
+  emailSettings: {
+    provider: string
+    apiKey: string
+    fromEmail: string
+    replyToEmail: string
+    enabled: boolean
+  }
 }
 
 // Disable static generation - must be exported before component
@@ -49,9 +56,18 @@ export default function PlatformSettingsPage() {
         max_users: -1,
         max_storage_gb: -1
       }
-    ]
+    ],
+    emailSettings: {
+      provider: 'resend',
+      apiKey: '',
+      fromEmail: 'social@sunkool.in',
+      replyToEmail: 'support@zoravo.com',
+      enabled: true
+    }
   })
+  const [showApiKey, setShowApiKey] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'general' | 'subscription' | 'email'>('general')
   const [editingPlan, setEditingPlan] = useState<number | null>(null)
   const [showAddPlan, setShowAddPlan] = useState(false)
   const [newPlan, setNewPlan] = useState<Partial<SubscriptionPlan>>({
@@ -82,7 +98,12 @@ export default function PlatformSettingsPage() {
           'support_email',
           'default_trial_days',
           'default_currency',
-          'subscription_plans'
+          'subscription_plans',
+          'email_provider',
+          'email_api_key',
+          'email_from_email',
+          'email_reply_to',
+          'email_enabled'
         ])
         .is('tenant_id', null) // Platform settings are global
 
@@ -160,7 +181,14 @@ export default function PlatformSettingsPage() {
           supportEmail: settingsMap.support_email || prev.supportEmail,
           defaultTrialDays: parseInt(settingsMap.default_trial_days) || prev.defaultTrialDays,
           defaultCurrency: settingsMap.default_currency || prev.defaultCurrency,
-          subscriptionPlans: loadedPlans.length > 0 ? loadedPlans : prev.subscriptionPlans // Use loaded plans or keep defaults
+          subscriptionPlans: loadedPlans.length > 0 ? loadedPlans : prev.subscriptionPlans, // Use loaded plans or keep defaults
+          emailSettings: {
+            provider: settingsMap.email_provider || prev.emailSettings.provider,
+            apiKey: settingsMap.email_api_key || prev.emailSettings.apiKey,
+            fromEmail: settingsMap.email_from_email || prev.emailSettings.fromEmail,
+            replyToEmail: settingsMap.email_reply_to || prev.emailSettings.replyToEmail,
+            enabled: settingsMap.email_enabled === 'true' || settingsMap.email_enabled === true || prev.emailSettings.enabled
+          }
         }))
       }
     } catch (error) {
@@ -168,63 +196,36 @@ export default function PlatformSettingsPage() {
     }
   }
 
-  const handleSave = async () => {
+  const handleSaveGeneral = async () => {
     setSaving(true)
     try {
       const settingsToSave = [
         { setting_key: 'platform_name', setting_value: settings.platformName, setting_group: 'platform' },
-        { setting_key: 'support_email', setting_value: settings.supportEmail, setting_group: 'platform' },
+        { setting_key: 'support_email', setting_value: settings.supportEmail, setting_group: 'platform' }
+      ]
+
+      await saveSettings(settingsToSave)
+      alert('General settings saved successfully!')
+      await loadSettings()
+    } catch (error: any) {
+      console.error('Error saving general settings:', error)
+      alert('Failed to save general settings: ' + (error.message || 'Unknown error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveSubscription = async () => {
+    setSaving(true)
+    try {
+      const settingsToSave = [
         { setting_key: 'default_trial_days', setting_value: settings.defaultTrialDays.toString(), setting_group: 'subscription' },
         { setting_key: 'default_currency', setting_value: settings.defaultCurrency, setting_group: 'subscription' }
       ]
 
-      // Save platform settings - check if exists first, then update or insert
-      for (const setting of settingsToSave) {
-        // Check if setting exists (platform settings have tenant_id = NULL)
-        const { data: existing } = await supabase
-          .from('system_settings')
-          .select('id')
-          .eq('setting_key', setting.setting_key)
-          .is('tenant_id', null) // Platform settings are global
-          .maybeSingle()
+      await saveSettings(settingsToSave)
 
-        if (existing) {
-          // Update existing setting
-          const { error } = await supabase
-            .from('system_settings')
-            .update({
-              setting_value: setting.setting_value,
-              setting_group: setting.setting_group,
-              updated_at: new Date().toISOString()
-            })
-            .eq('setting_key', setting.setting_key)
-            .is('tenant_id', null)
-          
-          if (error) {
-            console.error(`Error updating ${setting.setting_key}:`, error)
-            throw error
-          }
-        } else {
-          // Insert new setting (with tenant_id = NULL for platform settings)
-          const { error } = await supabase
-            .from('system_settings')
-            .insert({
-              setting_key: setting.setting_key,
-              setting_value: setting.setting_value,
-              setting_group: setting.setting_group,
-              tenant_id: null, // Platform settings are global
-              updated_at: new Date().toISOString()
-            })
-          
-          if (error) {
-            console.error(`Error inserting ${setting.setting_key}:`, error)
-            throw error
-          }
-        }
-      }
-
-      // Save subscription plans - ensure only one plan (annual plan)
-      // Always ensure we have exactly one annual plan
+      // Save subscription plans separately
       const plansToSave = settings.subscriptionPlans.length > 0 
         ? [settings.subscriptionPlans[0]] // Only save the first plan
         : [{
@@ -245,11 +246,10 @@ export default function PlatformSettingsPage() {
         .from('system_settings')
         .select('id')
         .eq('setting_key', 'subscription_plans')
-        .is('tenant_id', null) // Platform settings are global
+        .is('tenant_id', null)
         .maybeSingle()
 
       if (existingPlans) {
-        // Update existing plans
         const { error: plansError } = await supabase
           .from('system_settings')
           .update({
@@ -260,36 +260,97 @@ export default function PlatformSettingsPage() {
           .eq('setting_key', 'subscription_plans')
           .is('tenant_id', null)
 
-        if (plansError) {
-          console.error('Error updating subscription plans:', plansError)
-          throw plansError
-        }
+        if (plansError) throw plansError
       } else {
-        // Insert new plans (with tenant_id = NULL for platform settings)
         const { error: plansError } = await supabase
           .from('system_settings')
           .insert({
             setting_key: 'subscription_plans',
             setting_value: JSON.stringify(plansToSave),
             setting_group: 'subscription',
-            tenant_id: null, // Platform settings are global
+            tenant_id: null,
             updated_at: new Date().toISOString()
           })
 
-        if (plansError) {
-          console.error('Error inserting subscription plans:', plansError)
-          throw plansError
-        }
+        if (plansError) throw plansError
       }
 
-      alert('Settings saved successfully!')
-      // Reload settings to ensure consistency
+      alert('Subscription settings saved successfully!')
       await loadSettings()
     } catch (error: any) {
-      console.error('Error saving settings:', error)
-      alert('Failed to save settings: ' + (error.message || 'Unknown error'))
+      console.error('Error saving subscription settings:', error)
+      alert('Failed to save subscription settings: ' + (error.message || 'Unknown error'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSaveEmail = async () => {
+    setSaving(true)
+    try {
+      const settingsToSave = [
+        { setting_key: 'email_provider', setting_value: settings.emailSettings.provider, setting_group: 'email' },
+        { setting_key: 'email_api_key', setting_value: settings.emailSettings.apiKey, setting_group: 'email' },
+        { setting_key: 'email_from_email', setting_value: settings.emailSettings.fromEmail, setting_group: 'email' },
+        { setting_key: 'email_reply_to', setting_value: settings.emailSettings.replyToEmail, setting_group: 'email' },
+        { setting_key: 'email_enabled', setting_value: settings.emailSettings.enabled.toString(), setting_group: 'email' }
+      ]
+
+      await saveSettings(settingsToSave)
+      alert('Email settings saved successfully!')
+      await loadSettings()
+    } catch (error: any) {
+      console.error('Error saving email settings:', error)
+      alert('Failed to save email settings: ' + (error.message || 'Unknown error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveSettings = async (settingsToSave: Array<{ setting_key: string, setting_value: string, setting_group: string }>) => {
+    // Save platform settings - check if exists first, then update or insert
+    for (const setting of settingsToSave) {
+      // Check if setting exists (platform settings have tenant_id = NULL)
+      const { data: existing } = await supabase
+        .from('system_settings')
+        .select('id')
+        .eq('setting_key', setting.setting_key)
+        .is('tenant_id', null) // Platform settings are global
+        .maybeSingle()
+
+      if (existing) {
+        // Update existing setting
+        const { error } = await supabase
+          .from('system_settings')
+          .update({
+            setting_value: setting.setting_value,
+            setting_group: setting.setting_group,
+            updated_at: new Date().toISOString()
+          })
+          .eq('setting_key', setting.setting_key)
+          .is('tenant_id', null)
+        
+        if (error) {
+          console.error(`Error updating ${setting.setting_key}:`, error)
+          throw error
+        }
+      } else {
+        // Insert new setting (with tenant_id = NULL for platform settings)
+        const { error } = await supabase
+          .from('system_settings')
+          .insert({
+            setting_key: setting.setting_key,
+            setting_value: setting.setting_value,
+            setting_group: setting.setting_group,
+            tenant_id: null, // Platform settings are global
+            updated_at: new Date().toISOString()
+          })
+        
+        if (error) {
+          console.error(`Error inserting ${setting.setting_key}:`, error)
+          throw error
+        }
+      }
     }
   }
 
@@ -343,10 +404,53 @@ export default function PlatformSettingsPage() {
         backgroundColor: 'white',
         borderRadius: '0.75rem',
         border: '1px solid #e5e7eb',
-        padding: '2rem'
+        overflow: 'hidden'
       }}>
-        {/* General Settings */}
-        <div style={{ marginBottom: '2rem' }}>
+        {/* Tabs */}
+        <div style={{
+          borderBottom: '1px solid #e5e7eb',
+          display: 'flex',
+          gap: '0.5rem',
+          padding: '0 2rem',
+          backgroundColor: '#f9fafb'
+        }}>
+          {[
+            { id: 'general', label: 'General', icon: Globe },
+            { id: 'subscription', label: 'Subscription', icon: Shield },
+            { id: 'email', label: 'Email', icon: Mail }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as 'general' | 'subscription' | 'email')}
+              style={{
+                padding: '1rem 1.5rem',
+                borderBottom: activeTab === tab.id ? '2px solid #2563eb' : '2px solid transparent',
+                borderTop: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                color: activeTab === tab.id ? '#2563eb' : '#64748b',
+                backgroundColor: 'transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <tab.icon style={{ width: '1rem', height: '1rem' }} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div style={{ padding: '2rem' }}>
+          {/* General Settings Tab */}
+          {activeTab === 'general' && (
+            <div>
+              <div style={{ marginBottom: '2rem' }}>
           <h2 style={{
             fontSize: '1.25rem',
             fontWeight: '600',
@@ -411,10 +515,38 @@ export default function PlatformSettingsPage() {
               />
             </div>
           </div>
-        </div>
+              </div>
 
-        {/* Subscription Settings */}
-        <div style={{ marginBottom: '2rem', paddingTop: '2rem', borderTop: '1px solid #e5e7eb' }}>
+              {/* Save Button for General */}
+              <div style={{ paddingTop: '2rem', borderTop: '1px solid #e5e7eb', marginTop: '2rem' }}>
+                <button
+                  onClick={handleSaveGeneral}
+                  disabled={saving}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    backgroundColor: saving ? '#9ca3af' : '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    fontWeight: '500',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Save style={{ width: '1rem', height: '1rem' }} />
+                  {saving ? 'Saving...' : 'Save General Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Subscription Settings Tab */}
+          {activeTab === 'subscription' && (
+            <div>
+              <div style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h2 style={{
             fontSize: '1.25rem',
@@ -1015,30 +1147,313 @@ export default function PlatformSettingsPage() {
               ))}
             </div>
           </div>
-        </div>
+              </div>
 
-        {/* Save Button */}
-        <div style={{ paddingTop: '2rem', borderTop: '1px solid #e5e7eb' }}>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: saving ? '#9ca3af' : '#2563eb',
-              color: 'white',
-              border: 'none',
-              borderRadius: '0.5rem',
-              fontWeight: '500',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            <Save style={{ width: '1rem', height: '1rem' }} />
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
+              {/* Save Button for Subscription */}
+              <div style={{ paddingTop: '2rem', borderTop: '1px solid #e5e7eb', marginTop: '2rem' }}>
+                <button
+                  onClick={handleSaveSubscription}
+                  disabled={saving}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    backgroundColor: saving ? '#9ca3af' : '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    fontWeight: '500',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Save style={{ width: '1rem', height: '1rem' }} />
+                  {saving ? 'Saving...' : 'Save Subscription Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Email Settings Tab */}
+          {activeTab === 'email' && (
+            <div>
+              <div style={{ marginBottom: '2rem' }}>
+          <h2 style={{
+            fontSize: '1.25rem',
+            fontWeight: '600',
+            color: '#1f2937',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <Mail style={{ width: '1.25rem', height: '1.25rem' }} />
+            Email Settings
+          </h2>
+          
+          <div style={{
+            backgroundColor: '#f9fafb',
+            padding: '1.5rem',
+            borderRadius: '0.75rem',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Email Provider */}
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '0.5rem'
+                }}>
+                  Email Provider *
+                </label>
+                <select
+                  value={settings.emailSettings.provider}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    emailSettings: { ...settings.emailSettings, provider: e.target.value }
+                  })}
+                  style={{
+                    width: '100%',
+                    maxWidth: '400px',
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="resend">Resend</option>
+                  <option value="sendgrid">SendGrid</option>
+                  <option value="mailgun">Mailgun</option>
+                  <option value="smtp">SMTP</option>
+                </select>
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  Currently using Resend API for email delivery
+                </p>
+              </div>
+
+              {/* API Key */}
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '0.5rem'
+                }}>
+                  API Key *
+                </label>
+                <div style={{ position: 'relative', maxWidth: '400px' }}>
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={settings.emailSettings.apiKey}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      emailSettings: { ...settings.emailSettings, apiKey: e.target.value }
+                    })}
+                    placeholder="Enter your email service API key"
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 2.5rem 0.75rem 0.75rem',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                      fontFamily: showApiKey ? 'monospace' : 'inherit'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '0.5rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '0.25rem',
+                      color: '#6b7280',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    {showApiKey ? (
+                      <EyeOff style={{ width: '1rem', height: '1rem' }} />
+                    ) : (
+                      <Eye style={{ width: '1rem', height: '1rem' }} />
+                    )}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  Your Resend API key (stored securely in database)
+                </p>
+              </div>
+
+              {/* From Email */}
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '0.5rem'
+                }}>
+                  From Email Address *
+                </label>
+                <input
+                  type="email"
+                  value={settings.emailSettings.fromEmail}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    emailSettings: { ...settings.emailSettings, fromEmail: e.target.value }
+                  })}
+                  placeholder="noreply@yourdomain.com"
+                  style={{
+                    width: '100%',
+                    maxWidth: '400px',
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem'
+                  }}
+                />
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  The email address that appears as the sender (must be verified in Resend)
+                </p>
+              </div>
+
+              {/* Reply-To Email */}
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '0.5rem'
+                }}>
+                  Reply-To Email Address
+                </label>
+                <input
+                  type="email"
+                  value={settings.emailSettings.replyToEmail}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    emailSettings: { ...settings.emailSettings, replyToEmail: e.target.value }
+                  })}
+                  placeholder="support@yourdomain.com"
+                  style={{
+                    width: '100%',
+                    maxWidth: '400px',
+                    padding: '0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem'
+                  }}
+                />
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  Email address where replies should be sent (optional)
+                </p>
+              </div>
+
+              {/* Email Enabled Toggle */}
+              <div>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.emailSettings.enabled}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      emailSettings: { ...settings.emailSettings, enabled: e.target.checked }
+                    })}
+                    style={{ width: '1rem', height: '1rem' }}
+                  />
+                  <span style={{ fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
+                    Enable Email Notifications
+                  </span>
+                </label>
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem', marginLeft: '1.75rem' }}>
+                  When disabled, email notifications will not be sent
+                </p>
+              </div>
+
+              {/* Email Format Info */}
+              <div style={{
+                backgroundColor: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: '0.5rem',
+                padding: '1rem',
+                marginTop: '0.5rem'
+              }}>
+                <div style={{
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  color: '#1e40af',
+                  marginBottom: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  <Mail style={{ width: '1rem', height: '1rem' }} />
+                  Email Format & Details
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#1e40af', lineHeight: '1.6' }}>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Format:</strong> HTML emails with responsive design
+                  </p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Templates:</strong> Welcome emails, Daily reports, Notifications
+                  </p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Attachments:</strong> PDF reports are attached to daily emails
+                  </p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Provider:</strong> Resend API (transactional email service)
+                  </p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Security:</strong> API keys are stored securely in the database
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+              </div>
+
+              {/* Save Button for Email */}
+              <div style={{ paddingTop: '2rem', borderTop: '1px solid #e5e7eb', marginTop: '2rem' }}>
+                <button
+                  onClick={handleSaveEmail}
+                  disabled={saving}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    backgroundColor: saving ? '#9ca3af' : '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '0.5rem',
+                    fontWeight: '500',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Save style={{ width: '1rem', height: '1rem' }} />
+                  {saving ? 'Saving...' : 'Save Email Settings'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

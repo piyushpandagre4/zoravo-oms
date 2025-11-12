@@ -10,6 +10,7 @@ import VehicleDetailsModal from '@/components/VehicleDetailsModal'
 import { createClient } from '@/lib/supabase/client'
 import { notificationWorkflow } from '@/lib/notification-workflow'
 import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 export default function DashboardPageClient() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -485,9 +486,9 @@ export default function DashboardPageClient() {
 
   const formatCurrency = (amount: number) => {
     if (amount >= 100000) {
-      return `Γé╣${(amount / 100000).toFixed(1)}L`
+      return `Rs. ${(amount / 100000).toFixed(1)}L`
     }
-    return `Γé╣${amount.toLocaleString()}`
+    return `Rs. ${amount.toLocaleString()}`
   }
 
   const formatChange = (change: number) => {
@@ -864,27 +865,85 @@ export default function DashboardPageClient() {
                 </div>
               </div>
 
-              {/* Finance Snapshot */}
+              {/* Vehicle Status Bar Chart */}
               <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '0.875rem', padding: '1.25rem' }}>
-                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827', marginBottom: '0.75rem' }}>Finance Snapshot</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Recent Invoices</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827' }}>{adminMetrics?.recentInvoices ?? recentInvoices.length}</div>
-                  </div>
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Pending Amount</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827' }}>{formatCurrency(adminMetrics?.pendingAmount ?? 0)}</div>
-                  </div>
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Paid This Month</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827' }}>{formatCurrency(adminMetrics?.paidThisMonth ?? 0)}</div>
-                  </div>
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Overdue</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827' }}>{formatCurrency(adminMetrics?.overdueAmount ?? 0)}</div>
-                  </div>
-                </div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827', marginBottom: '1rem' }}>Vehicle Status Distribution</div>
+                {(() => {
+                  const statusConfig = [
+                    { status: 'pending', label: 'Pending', color: '#2563eb' },
+                    { status: 'in_progress', label: 'In Progress', color: '#2563eb' },
+                    { status: 'under_installation', label: 'Under Installation', color: '#2563eb' },
+                    { status: 'installation_complete', label: 'Installation Complete', color: '#2563eb' },
+                    { status: 'completed', label: 'Completed', color: '#2563eb' },
+                    { status: 'delivered', label: 'Delivered', color: '#2563eb' }
+                  ]
+                  
+                  const chartData = statusConfig.map(config => {
+                    const count = recentVehicles.filter(v => {
+                      const vehicleStatus = (v.status || '').toLowerCase().trim()
+                      return vehicleStatus === config.status || 
+                             (config.status === 'in_progress' && vehicleStatus === 'in progress') ||
+                             (config.status === 'under_installation' && vehicleStatus === 'under installation') ||
+                             (config.status === 'installation_complete' && (vehicleStatus === 'installation complete' || vehicleStatus === 'installation_complete'))
+                    }).length
+                    return {
+                      name: config.label,
+                      value: count,
+                      color: config.color
+                    }
+                  }).filter(item => item.value > 0 || true) // Show all statuses even if count is 0
+                  
+                  const maxValue = Math.max(...chartData.map(d => d.value), 1)
+                  
+                  return (
+                    <div style={{ width: '100%', height: '300px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart 
+                          data={chartData}
+                          margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis 
+                            dataKey="name" 
+                            tick={{ fontSize: 11, fill: '#64748b' }}
+                            axisLine={{ stroke: '#e2e8f0' }}
+                            angle={-45}
+                            textAnchor="end"
+                            height={80}
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 12, fill: '#64748b' }}
+                            axisLine={{ stroke: '#e2e8f0' }}
+                            domain={[0, maxValue]}
+                          />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: 'white',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '0.5rem',
+                              boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                              padding: '0.5rem'
+                            }}
+                            formatter={(value: number, name: string, props: any) => [
+                              `${value} vehicle${value !== 1 ? 's' : ''}`,
+                              props.payload.name
+                            ]}
+                            labelStyle={{ fontWeight: 600, marginBottom: '0.25rem' }}
+                          />
+                          <Bar 
+                            dataKey="value" 
+                            radius={[8, 8, 0, 0]}
+                            label={{ position: 'top', fontSize: 11, fill: '#64748b' }}
+                          >
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
@@ -923,13 +982,13 @@ export default function DashboardPageClient() {
                 {recentVehicles.slice(0,6).map(v => (
                   <div key={v.id} style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
                     <div style={{ fontWeight: 600, color: '#111827', marginBottom: '0.25rem' }}>{v.customer?.name || v.registration_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{(v.status || '').replace('_',' ').toUpperCase()} ΓÇó {new Date(v.updated_at || v.created_at).toLocaleDateString('en-IN')}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{(v.status || '').replace('_',' ').toUpperCase()} • {new Date(v.updated_at || v.created_at).toLocaleDateString('en-IN')}</div>
                   </div>
                 ))}
                 {recentInvoices.slice(0,6).map(inv => (
                   <div key={inv.id} style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '0.75rem' }}>
                     <div style={{ fontWeight: 600, color: '#111827', marginBottom: '0.25rem' }}>Invoice {inv.invoice_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{formatCurrency(inv.total_amount)} ΓÇó {(inv.status || '').toUpperCase()}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{formatCurrency(inv.total_amount)} • {(inv.status || '').toUpperCase()}</div>
                   </div>
                 ))}
               </div>
@@ -1162,7 +1221,7 @@ export default function DashboardPageClient() {
                                       <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                                         {isInstaller && (
                                           <th style={{ padding: '0.5rem', textAlign: 'center', color: '#6b7280', fontWeight: '600', fontSize: '0.75rem', width: '2.5rem' }}>
-                                            Γ£ô
+                                            ✓
                                           </th>
                                         )}
                                         <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', fontWeight: '600', fontSize: '0.75rem' }}>

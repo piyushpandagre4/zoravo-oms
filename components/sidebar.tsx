@@ -26,8 +26,8 @@ const iconMap: Record<string, any> = {
 
 export default function Sidebar({ userRole }: SidebarProps) {
   const pathname = usePathname()
-  const [companyName, setCompanyName] = useState('R S Cars • Nagpur')
-  const [companyLocation, setCompanyLocation] = useState('Nagpur')
+  const [companyName, setCompanyName] = useState('R S Cars')
+  const [companyLocation, setCompanyLocation] = useState('')
   const [isSubscriptionExpired, setIsSubscriptionExpired] = useState(false)
   const supabase = createClient()
   const [isMobile, setIsMobile] = useState(false)
@@ -39,6 +39,8 @@ export default function Sidebar({ userRole }: SidebarProps) {
     onResize()
     window.addEventListener('resize', onResize)
     
+    const tenantId = getCurrentTenantId()
+    
     // Set up real-time subscription for company settings
     const channel = supabase
       .channel('company-settings-updates')
@@ -48,7 +50,18 @@ export default function Sidebar({ userRole }: SidebarProps) {
           loadCompanySettings()
         }
       )
-      .subscribe()
+    
+    // Subscribe to tenants table changes for the current tenant
+    if (tenantId) {
+      channel.on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tenants', filter: `id=eq.${tenantId}` },
+        () => {
+          loadCompanySettings()
+        }
+      )
+    }
+    
+    channel.subscribe()
 
     // Listen for custom events when settings are updated
     const handleCompanyUpdate = () => {

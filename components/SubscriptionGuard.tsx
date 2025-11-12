@@ -28,6 +28,13 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
 
   useEffect(() => {
     checkSubscriptionStatus()
+    
+    // Check subscription status periodically (every 5 minutes) to handle expired sessions
+    const interval = setInterval(() => {
+      checkSubscriptionStatus()
+    }, 5 * 60 * 1000) // 5 minutes
+    
+    return () => clearInterval(interval)
   }, [])
 
   const checkSubscriptionStatus = async () => {
@@ -95,9 +102,12 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
       const tenantInactive = !tenantData.is_active
       
       // Tenant is active if:
-      // 1. Tenant is active AND (subscription not expired OR no subscription exists)
-      // 2. OR user is admin AND tenant is inactive (admins can access inactive tenants)
-      const isActive = (tenantData.is_active && (!isExpired || !subscriptionEndDate)) || (isAdmin && tenantInactive)
+      // 1. Tenant is_active = true AND
+      // 2. (No subscription exists OR subscription not expired)
+      // If subscription expired, tenant should be inactive
+      // Note: Even admins should see the blur screen when tenant is inactive
+      // Admins can still access Settings to submit payment proof
+      const isActive = tenantData.is_active && (!subscriptionEndDate || !isExpired)
 
       setSubscriptionStatus({
         isActive,
@@ -133,13 +143,12 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
 
   // Block access if tenant is not active (either expired subscription or inactive tenant)
   // But allow:
-  // 1. Admins to access even when tenant is inactive (to submit payment proof)
-  // 2. All users to access Settings and About pages
-  // 3. If subscriptionStatus is null, don't block (still loading or no tenant)
+  // 1. All users (including admins) to access Settings and About pages when tenant is inactive/expired
+  // 2. If subscriptionStatus is null, don't block (still loading or no tenant)
+  // Note: Even admins should see the blur screen - they can access Settings to reactivate
   const shouldBlock = 
     subscriptionStatus !== null &&
     !subscriptionStatus.isActive && 
-    !subscriptionStatus.isAdmin && 
     !isAllowedPage
 
   if (shouldBlock) {

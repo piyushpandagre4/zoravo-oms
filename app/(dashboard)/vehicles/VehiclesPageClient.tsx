@@ -650,7 +650,7 @@ export default function VehiclesPageClient() {
                               fontWeight: '600',
                               border: '1px solid #fde68a'
                             }}
-                            title={`Discount: Γé╣${vehicle.discountAmount} (${vehicle.discountPercentage.toFixed(1)}%)`}
+                            title={`Discount: Rs. ${vehicle.discountAmount} (${vehicle.discountPercentage.toFixed(1)}%)`}
                           >
                             <Percent style={{ width: '0.625rem', height: '0.625rem' }} />
                             Discount
@@ -664,7 +664,7 @@ export default function VehiclesPageClient() {
                       <div style={{ fontWeight: '500' }}>{vehicle.model}</div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{vehicle.regNo}</div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                        {vehicle.year ? `${vehicle.year} ΓÇó ` : ''}{vehicle.color}
+                        {vehicle.year ? `${vehicle.year} • ` : ''}{vehicle.color}
                       </div>
                     </div>
                   </td>
@@ -736,7 +736,7 @@ export default function VehiclesPageClient() {
                             <option value="installation_complete">Installation Complete</option>
                             <option value="completed">Completed</option>
                             <option value="delivered" style={{ fontWeight: 'bold', backgroundColor: '#dcfce7' }}>
-                              {vehicle.isAccountantComplete ? 'Γ£ô Mark as Delivered' : 'Delivered'}
+                              {vehicle.isAccountantComplete ? '✓ Mark as Delivered' : 'Delivered'}
                             </option>
                           </select>
                           {vehicle.isAccountantComplete && (
@@ -760,7 +760,7 @@ export default function VehiclesPageClient() {
                       </div>
                       {vehicle.estimatedCost && (
                         <div style={{ fontSize: '0.75rem' }}>
-                          <strong>Cost:</strong> Γé╣{vehicle.estimatedCost}
+                          <strong>Cost:</strong> Rs. {vehicle.estimatedCost}
                         </div>
                       )}
                       {vehicle.hasDiscount && (
@@ -773,7 +773,7 @@ export default function VehiclesPageClient() {
                           border: '1px solid #fde68a',
                           fontWeight: '600'
                         }}>
-                          <strong>Discount:</strong> Γé╣{vehicle.discountAmount} ({vehicle.discountPercentage.toFixed(1)}%)
+                          <strong>Discount:</strong> Rs. {vehicle.discountAmount} ({vehicle.discountPercentage.toFixed(1)}%)
                           {vehicle.discountOfferedBy && ` by ${vehicle.discountOfferedBy}`}
                         </div>
                       )}
@@ -793,7 +793,7 @@ export default function VehiclesPageClient() {
                           fontWeight: '600',
                           marginTop: '0.25rem'
                         }}>
-                          Γ£ô Ready for Delivery
+                          ✓ Ready for Delivery
                         </div>
                       )}
                     </div>

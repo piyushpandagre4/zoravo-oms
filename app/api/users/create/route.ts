@@ -66,44 +66,60 @@ export async function POST(request: Request) {
     // Wait a bit to ensure auth user is fully created
     await new Promise(resolve => setTimeout(resolve, 300))
 
-    // Create profile manually using admin client
+    // Prepare profile data with all fields including departments
+    const profileData: any = {
+      id: authData.user.id,
+      email,
+      name,
+      role,
+      phone
+    }
+    
+    // Add department information to initial profile creation
+    if (departments && Array.isArray(departments) && departments.length > 0) {
+      // Try setting a JSON/array column named `departments`; fallback to comma string in `department`
+      profileData.departments = departments
+      // Also set department as comma-separated string for backward compatibility
+      profileData.department = departments.join(', ')
+    } else if (department) {
+      profileData.department = department
+    }
+    
+    if (specialization) {
+      profileData.specialization = specialization
+    }
+
+    // Create profile manually using admin client with all fields
     const { error: profileCreateError } = await adminSupabase
       .from('profiles')
-      .insert({
-        id: authData.user.id,
-        email,
-        name,
-        role,
-        phone
-      })
+      .insert(profileData)
 
     if (profileCreateError) {
       console.error('Error creating profile:', profileCreateError)
       // Don't delete the auth user - profile creation might fail but user exists
       console.warn('Profile creation failed but auth user was created:', authData.user.id)
-    } else {
-      console.log('Profile created successfully')
-    }
-
-    // Update profile with additional fields if provided using admin client
-    if (department || departments || specialization || phone) {
-      const updateData: any = {}
-      if (phone) updateData.phone = phone
-      if (departments && Array.isArray(departments)) {
-        // Try setting a JSON/array column named `departments`; fallback to comma string in `department`
-        updateData.departments = departments
-        updateData.department = departments.join(', ')
-      } else if (department) {
-        updateData.department = department
+      
+      // Try to update profile if creation failed (might already exist)
+      if (departments && Array.isArray(departments) && departments.length > 0) {
+        const updateData: any = {
+          departments: departments,
+          department: departments.join(', ')
+        }
+        if (specialization) updateData.specialization = specialization
+        
+        const { error: updateError } = await adminSupabase
+          .from('profiles')
+          .update(updateData)
+          .eq('id', authData.user.id)
+        
+        if (updateError) {
+          console.error('Error updating profile with departments:', updateError)
+        } else {
+          console.log('Profile updated with departments successfully')
+        }
       }
-      if (specialization) updateData.specialization = specialization
-
-      const { error: updateError } = await adminSupabase
-        .from('profiles')
-        .update(updateData)
-        .eq('id', authData.user.id)
-
-      if (updateError) console.error('Error updating profile:', updateError)
+    } else {
+      console.log('Profile created successfully with all fields')
     }
 
     // Create tenant_users relationship if tenant_id is provided

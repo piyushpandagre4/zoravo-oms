@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, User, Shield, Bell, Database, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car, MessageSquare, Smartphone, ToggleLeft, ToggleRight, FileText, Clock, Mail, HelpCircle, CheckCircle } from 'lucide-react'
+import { Settings, User, Bell, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car, MessageSquare, Smartphone, ToggleLeft, ToggleRight, FileText, Clock, Mail, HelpCircle, CheckCircle, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import UserManagementModal from '@/components/UserManagementModal'
 import { whatsappService, type WhatsAppConfig } from '@/lib/whatsapp-service'
@@ -12,6 +12,14 @@ export default function SettingsPageClient() {
   const [activeTab, setActiveTab] = useState('profile')
   const [managementTab, setManagementTab] = useState('installers')
   const [isLoading, setIsLoading] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
   
   // Modal states
   const [showUserModal, setShowUserModal] = useState(false)
@@ -52,7 +60,7 @@ export default function SettingsPageClient() {
     phone: '081491 11110',
     email: '',
     website: '',
-    businessHours: 'Open Γïà Closes 7 pm',
+    businessHours: 'Open - Closes 7 pm',
     openingTime: '09:00',
     closingTime: '19:00',
     gstNumber: '',
@@ -128,8 +136,6 @@ export default function SettingsPageClient() {
     { id: 'management', label: 'Management', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'payment', label: 'Payment', icon: DollarSign },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'database', label: 'Database', icon: Database },
   ]
   const filteredTabs = (userRole === 'installer' || userRole === 'coordinator' || userRole === 'manager' || userRole === 'accountant') 
     ? tabs.filter(t => t.id === 'company') 
@@ -178,9 +184,9 @@ export default function SettingsPageClient() {
       }
       
       if (startDate && endDate) {
-        const start = new Date(startDate).getTime()
+        const now = new Date().getTime()
         const end = new Date(endDate).getTime()
-        const diff = end - start
+        const diff = end - now
         const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
         setDaysRemaining(days)
       } else {
@@ -323,7 +329,7 @@ export default function SettingsPageClient() {
     try {
       setRequestingActivation(true)
       
-      // Request the standard annual plan (Γé╣12,000/year)
+      // Request the standard annual plan (Rs. 12,000/year)
       const response = await fetch('/api/tenants/subscription-plans', {
         method: 'POST',
         headers: {
@@ -513,11 +519,8 @@ export default function SettingsPageClient() {
       let tenantId = getCurrentTenantId()
       const isSuper = isSuperAdmin()
       
-      console.log('≡ƒöì fetchInstallers - tenantId:', tenantId, 'isSuper:', isSuper)
-      
       // If tenant_id is missing, try to fetch it from database
       if (!isSuper && !tenantId) {
-        console.warn('ΓÜá∩╕Å tenant_id not found in sessionStorage, fetching from database...')
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data: tenantUser } = await supabase
@@ -529,30 +532,24 @@ export default function SettingsPageClient() {
           if (tenantUser?.tenant_id) {
             tenantId = tenantUser.tenant_id
             sessionStorage.setItem('current_tenant_id', tenantId)
-            console.log('Γ£à tenant_id fetched and set:', tenantId)
           }
         }
       }
       
       if (!isSuper && tenantId) {
         // Get installers for this tenant
-        console.log('≡ƒôï Fetching installers for tenant:', tenantId)
         const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('user_id, role, tenant_id')
           .eq('tenant_id', tenantId)
           .eq('role', 'installer')
         
-        console.log('≡ƒôï tenant_users query result:', { tenantUsers, error: tenantUsersError })
-        
         if (tenantUsersError) {
-          console.error('Γ¥î Error fetching tenant_users:', tenantUsersError)
           throw tenantUsersError
         }
         
         if (tenantUsers && tenantUsers.length > 0) {
           const userIds = tenantUsers.map(tu => tu.user_id)
-          console.log('≡ƒôï Found', userIds.length, 'installer user IDs:', userIds)
           
           const { data, error } = await supabase
             .from('profiles')
@@ -560,31 +557,24 @@ export default function SettingsPageClient() {
             .in('id', userIds)
             .order('created_at', { ascending: false })
           
-          if (error) {
-            console.error('Γ¥î Error fetching profiles:', error)
-            throw error
-          }
+          if (error) throw error
           
-          console.log('Γ£à Fetched', data?.length || 0, 'installers:', data)
           setInstallersList(data || [])
         } else {
-          console.warn('ΓÜá∩╕Å No installers found in tenant_users for tenant:', tenantId)
           setInstallersList([])
         }
       } else {
         // Super admin sees all installers
-        console.log('≡ƒææ Super admin mode - fetching all installers')
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('role', 'installer')
           .order('created_at', { ascending: false })
         if (error) throw error
-        console.log('Γ£à Fetched', data?.length || 0, 'installers (super admin)')
         setInstallersList(data || [])
       }
     } catch (error) {
-      console.error('Γ¥î Error fetching installers:', error)
+      console.error('Error fetching installers:', error)
       setInstallersList([])
     }
   }
@@ -594,8 +584,6 @@ export default function SettingsPageClient() {
       let tenantId = getCurrentTenantId()
       const isSuper = isSuperAdmin()
       
-      console.log('≡ƒöì fetchManagers - tenantId:', tenantId, 'isSuper:', isSuper)
-      
       // If tenant_id is missing, try to fetch it from database
       if (!isSuper && !tenantId) {
         const { data: { user } } = await supabase.auth.getUser()
@@ -609,27 +597,22 @@ export default function SettingsPageClient() {
           if (tenantUser?.tenant_id) {
             tenantId = tenantUser.tenant_id
             sessionStorage.setItem('current_tenant_id', tenantId)
-            console.log('Γ£à tenant_id fetched and set:', tenantId)
           }
         }
       }
       
       if (!isSuper && tenantId) {
         // Get managers for this tenant
-        console.log('≡ƒôï Fetching managers for tenant:', tenantId)
         const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('user_id, role, tenant_id')
           .eq('tenant_id', tenantId)
           .eq('role', 'manager')
         
-        console.log('≡ƒôï tenant_users query result:', { tenantUsers, error: tenantUsersError })
-        
         if (tenantUsersError) throw tenantUsersError
         
         if (tenantUsers && tenantUsers.length > 0) {
           const userIds = tenantUsers.map(tu => tu.user_id)
-          console.log('≡ƒôï Found', userIds.length, 'manager user IDs:', userIds)
           
           const { data, error } = await supabase
             .from('profiles')
@@ -637,10 +620,8 @@ export default function SettingsPageClient() {
             .in('id', userIds)
             .order('created_at', { ascending: false })
           if (error) throw error
-          console.log('Γ£à Fetched', data?.length || 0, 'managers')
           setManagers(data || [])
         } else {
-          console.warn('ΓÜá∩╕Å No managers found in tenant_users for tenant:', tenantId)
           setManagers([])
         }
       } else {
@@ -654,7 +635,7 @@ export default function SettingsPageClient() {
         setManagers(data || [])
       }
     } catch (error) {
-      console.error('Γ¥î Error fetching managers:', error)
+      console.error('Error fetching managers:', error)
       setManagers([])
     }
   }
@@ -663,8 +644,6 @@ export default function SettingsPageClient() {
     try {
       let tenantId = getCurrentTenantId()
       const isSuper = isSuperAdmin()
-      
-      console.log('≡ƒöì fetchAccountants - tenantId:', tenantId, 'isSuper:', isSuper)
       
       // If tenant_id is missing, try to fetch it from database
       if (!isSuper && !tenantId) {
@@ -679,27 +658,22 @@ export default function SettingsPageClient() {
           if (tenantUser?.tenant_id) {
             tenantId = tenantUser.tenant_id
             sessionStorage.setItem('current_tenant_id', tenantId)
-            console.log('Γ£à tenant_id fetched and set:', tenantId)
           }
         }
       }
       
       if (!isSuper && tenantId) {
         // Get accountants for this tenant
-        console.log('≡ƒôï Fetching accountants for tenant:', tenantId)
         const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('user_id, role, tenant_id')
           .eq('tenant_id', tenantId)
           .eq('role', 'accountant')
         
-        console.log('≡ƒôï tenant_users query result:', { tenantUsers, error: tenantUsersError })
-        
         if (tenantUsersError) throw tenantUsersError
         
         if (tenantUsers && tenantUsers.length > 0) {
           const userIds = tenantUsers.map(tu => tu.user_id)
-          console.log('≡ƒôï Found', userIds.length, 'accountant user IDs:', userIds)
           
           const { data, error } = await supabase
             .from('profiles')
@@ -707,10 +681,8 @@ export default function SettingsPageClient() {
             .in('id', userIds)
             .order('created_at', { ascending: false })
           if (error) throw error
-          console.log('Γ£à Fetched', data?.length || 0, 'accountants')
           setAccountantsList(data || [])
         } else {
-          console.warn('ΓÜá∩╕Å No accountants found in tenant_users for tenant:', tenantId)
           setAccountantsList([])
         }
       } else {
@@ -724,7 +696,7 @@ export default function SettingsPageClient() {
         setAccountantsList(data || [])
       }
     } catch (error) {
-      console.error('Γ¥î Error fetching accountants:', error)
+      console.error('Error fetching accountants:', error)
       setAccountantsList([])
     }
   }
@@ -905,7 +877,7 @@ export default function SettingsPageClient() {
       { event_type: 'vehicle_inward_created', template: '≡ƒÜù *New Vehicle Entry*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nStatus: Pending\n\nPlease check the dashboard for details.' },
       { event_type: 'installation_complete', template: 'Γ£à *Installation Complete*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nAll products have been installed successfully.\n\nReady for accountant review.' },
       { event_type: 'invoice_number_added', template: '≡ƒº╛ *Invoice Number Added*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice number has been set by accountant.\n\nPlease check the dashboard for details.' },
-      { event_type: 'accountant_completed', template: 'Γ£ô *Accountant Completed*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice processing completed.\n\nReady for delivery.' },
+      { event_type: 'accountant_completed', template: '✓ *Accountant Completed*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice processing completed.\n\nReady for delivery.' },
       { event_type: 'vehicle_delivered', template: '≡ƒÄë *Vehicle Delivered*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nVehicle has been marked as delivered.\n\nThank you for your work!' },
     ]
     setMessageTemplates(defaultTemplates as any)
@@ -1199,7 +1171,7 @@ export default function SettingsPageClient() {
             phone: '',
             email: '',
             website: '',
-            businessHours: 'Open Γïà Closes 7 pm',
+            businessHours: 'Open - Closes 7 pm',
             openingTime: '09:00',
             closingTime: '19:00',
             gstNumber: '',
@@ -1218,7 +1190,7 @@ export default function SettingsPageClient() {
             phone: '081491 11110',
             email: '',
             website: '',
-            businessHours: 'Open Γïà Closes 7 pm',
+            businessHours: 'Open - Closes 7 pm',
             openingTime: '09:00',
             closingTime: '19:00',
             gstNumber: '',
@@ -1530,13 +1502,17 @@ export default function SettingsPageClient() {
 
       alert('Company settings saved successfully! Changes will be reflected across the application.')
       
-      // Trigger events to notify other components
+      // Trigger events to notify other components (sidebar)
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('company-settings-updated'))
-        localStorage.setItem('companyName', companySettings.name)
+        // Dispatch custom event to update sidebar immediately
+        window.dispatchEvent(new CustomEvent('company-settings-updated'))
+        // Update localStorage for immediate UI update
+        if (companySettings.name) {
+          localStorage.setItem('companyName', companySettings.name)
+        }
       }
       
-      // Refresh after a short delay to show changes
+      // Refresh after a short delay to ensure all components are updated
       setTimeout(() => {
         window.location.reload()
       }, 500)
@@ -2117,57 +2093,107 @@ export default function SettingsPageClient() {
   }
 
   return (
-    <div style={{ padding: '2rem', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-      {/* Header */}
-        <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '0.5rem' }}>Settings</h1>
-          <p style={{ color: '#64748b', fontSize: '0.875rem' }}>Manage your account and system settings</p>
-      </div>
+    <>
+      <style>{`
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .settings-tabs-scroll::-webkit-scrollbar {
+          display: none;
+        }
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .settings-tabs-scroll {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
+      <div style={{ 
+        padding: isMobile ? '1rem' : '2rem', 
+        backgroundColor: '#f8fafc', 
+        minHeight: '100vh' 
+      }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+          {/* Header */}
+          <div style={{ marginBottom: isMobile ? '1rem' : '2rem' }}>
+          <h1 style={{ 
+            fontSize: isMobile ? '1.5rem' : '2rem', 
+            fontWeight: 'bold', 
+            color: '#1e293b', 
+            marginBottom: '0.5rem' 
+          }}>
+            Settings
+          </h1>
+          <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
+            Manage your account and system settings
+          </p>
+          </div>
 
-      {/* Tabs */}
-        <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', padding: '1rem', marginBottom: '2rem', border: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '1rem', marginBottom: '1rem' }}>
+          {/* Tabs */}
+          <div style={{ 
+          backgroundColor: 'white', 
+          borderRadius: '0.5rem', 
+          padding: isMobile ? '0.75rem' : '1rem', 
+          marginBottom: isMobile ? '1rem' : '2rem', 
+          border: '1px solid #e2e8f0' 
+        }}>
+          <div className="settings-tabs-scroll" style={{ 
+            display: 'flex', 
+            gap: isMobile ? '0.5rem' : '1rem', 
+            borderBottom: '1px solid #e2e8f0', 
+            paddingBottom: '1rem', 
+            marginBottom: '1rem',
+            overflowX: isMobile ? 'auto' : 'visible',
+            WebkitOverflowScrolling: 'touch'
+          }}>
           {filteredTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
-                  padding: '0.5rem 1rem',
+                  padding: isMobile ? '0.5rem 0.75rem' : '0.5rem 1rem',
                 border: 'none',
                   backgroundColor: activeTab === tab.id ? '#eff6ff' : 'transparent',
                 color: activeTab === tab.id ? '#2563eb' : '#64748b',
                   borderRadius: '0.375rem',
                 cursor: 'pointer',
-                fontSize: '0.875rem',
+                fontSize: isMobile ? '0.8125rem' : '0.875rem',
                   fontWeight: activeTab === tab.id ? '600' : '400',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
               }}
             >
-              <tab.icon style={{ width: '1rem', height: '1rem' }} />
+              <tab.icon style={{ width: isMobile ? '0.875rem' : '1rem', height: isMobile ? '0.875rem' : '1rem' }} />
               {tab.label}
             </button>
           ))}
-      </div>
+          </div>
 
           {/* Management Sub-tabs */}
           {activeTab === 'management' && (
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div className="settings-tabs-scroll" style={{ 
+              display: 'flex', 
+              gap: '0.5rem', 
+              marginBottom: '1rem', 
+              flexWrap: isMobile ? 'nowrap' : 'wrap',
+              overflowX: isMobile ? 'auto' : 'visible',
+              WebkitOverflowScrolling: 'touch'
+            }}>
               {['installers', 'managers', 'accountants', 'coordinator', 'locations', 'vehicle_types', 'departments'].map((tab) => (
                   <button
                   key={tab}
                   onClick={() => setManagementTab(tab)}
                     style={{
-                      padding: '0.5rem 1rem',
+                      padding: isMobile ? '0.5rem 0.75rem' : '0.5rem 1rem',
                     backgroundColor: managementTab === tab ? '#2563eb' : 'white',
                     color: managementTab === tab ? 'white' : '#64748b',
                       border: '1px solid #e2e8f0',
                       borderRadius: '0.375rem',
-                      fontSize: '0.875rem',
+                      fontSize: isMobile ? '0.8125rem' : '0.875rem',
                       fontWeight: '500',
-                                    cursor: 'pointer'
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0
                                   }}
                                 >
                   {tab === 'vehicle_types' ? 'Vehicle Types' : tab === 'departments' ? 'Departments' : tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -2204,8 +2230,21 @@ export default function SettingsPageClient() {
                       Add Installer
                     </button>
                   </div>
-                  <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    border: '1px solid #e2e8f0', 
+                    overflow: isMobile ? 'auto' : 'hidden'
+                  }}>
+                    <div style={{ 
+                      overflowX: isMobile ? 'auto' : 'visible',
+                      WebkitOverflowScrolling: 'touch'
+                    }}>
+                    <table style={{ 
+                      width: '100%', 
+                      borderCollapse: 'collapse',
+                      minWidth: isMobile ? '600px' : 'auto'
+                    }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <th style={{ display: 'none' }}>ID</th>
@@ -2301,9 +2340,10 @@ export default function SettingsPageClient() {
                           </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -2336,8 +2376,21 @@ export default function SettingsPageClient() {
                       Add Accountant
                     </button>
                   </div>
-                  <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    border: '1px solid #e2e8f0', 
+                    overflow: isMobile ? 'auto' : 'hidden'
+                  }}>
+                    <div style={{ 
+                      overflowX: isMobile ? 'auto' : 'visible',
+                      WebkitOverflowScrolling: 'touch'
+                    }}>
+                    <table style={{ 
+                      width: '100%', 
+                      borderCollapse: 'collapse',
+                      minWidth: isMobile ? '600px' : 'auto'
+                    }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <th style={{ display: 'none' }}>ID</th>
@@ -2433,9 +2486,10 @@ export default function SettingsPageClient() {
                           </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -2468,8 +2522,21 @@ export default function SettingsPageClient() {
                       Add Coordinator
                     </button>
                   </div>
-                  <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    border: '1px solid #e2e8f0', 
+                    overflow: isMobile ? 'auto' : 'hidden'
+                  }}>
+                    <div style={{ 
+                      overflowX: isMobile ? 'auto' : 'visible',
+                      WebkitOverflowScrolling: 'touch'
+                    }}>
+                    <table style={{ 
+                      width: '100%', 
+                      borderCollapse: 'collapse',
+                      minWidth: isMobile ? '600px' : 'auto'
+                    }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <th style={{ display: 'none' }}>ID</th>
@@ -2565,9 +2632,10 @@ export default function SettingsPageClient() {
                           </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -2600,8 +2668,21 @@ export default function SettingsPageClient() {
                       Add Manager
                     </button>
                   </div>
-                  <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    border: '1px solid #e2e8f0', 
+                    overflow: isMobile ? 'auto' : 'hidden'
+                  }}>
+                    <div style={{ 
+                      overflowX: isMobile ? 'auto' : 'visible',
+                      WebkitOverflowScrolling: 'touch'
+                    }}>
+                    <table style={{ 
+                      width: '100%', 
+                      borderCollapse: 'collapse',
+                      minWidth: isMobile ? '600px' : 'auto'
+                    }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <th style={{ display: 'none' }}>ID</th>
@@ -2697,9 +2778,10 @@ export default function SettingsPageClient() {
                           </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -2836,8 +2918,21 @@ export default function SettingsPageClient() {
                 </div>
               )}
               
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.5rem', 
+                border: '1px solid #e2e8f0', 
+                overflow: isMobile ? 'auto' : 'hidden'
+              }}>
+                <div style={{ 
+                  overflowX: isMobile ? 'auto' : 'visible',
+                  WebkitOverflowScrolling: 'touch'
+                }}>
+                <table style={{ 
+                  width: '100%', 
+                  borderCollapse: 'collapse',
+                  minWidth: isMobile ? '600px' : 'auto'
+                }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                       <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#475569' }}>Name</th>
@@ -2935,9 +3030,10 @@ export default function SettingsPageClient() {
                         </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -3054,8 +3150,21 @@ export default function SettingsPageClient() {
                 </div>
               )}
               
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.5rem', 
+                border: '1px solid #e2e8f0', 
+                overflow: isMobile ? 'auto' : 'hidden'
+              }}>
+                <div style={{ 
+                  overflowX: isMobile ? 'auto' : 'visible',
+                  WebkitOverflowScrolling: 'touch'
+                }}>
+                <table style={{ 
+                  width: '100%', 
+                  borderCollapse: 'collapse',
+                  minWidth: isMobile ? '600px' : 'auto'
+                }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                       <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#475569' }}>Name</th>
@@ -3148,9 +3257,10 @@ export default function SettingsPageClient() {
                         </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -3320,8 +3430,21 @@ export default function SettingsPageClient() {
                 </div>
               )}
               
-              <div style={{ backgroundColor: 'white', borderRadius: '0.5rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.5rem', 
+                border: '1px solid #e2e8f0', 
+                overflow: isMobile ? 'auto' : 'hidden'
+              }}>
+                <div style={{ 
+                  overflowX: isMobile ? 'auto' : 'visible',
+                  WebkitOverflowScrolling: 'touch'
+                }}>
+                <table style={{ 
+                  width: '100%', 
+                  borderCollapse: 'collapse',
+                  minWidth: isMobile ? '600px' : 'auto'
+                }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                       <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#475569' }}>Name</th>
@@ -3430,9 +3553,10 @@ export default function SettingsPageClient() {
                         </tr>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
             </div>
           )}
 
@@ -3556,7 +3680,7 @@ export default function SettingsPageClient() {
                     marginBottom: '1.5rem'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                      <Shield style={{ width: '1rem', height: '1rem', color: '#d97706' }} />
+                      <HelpCircle style={{ width: '1rem', height: '1rem', color: '#d97706' }} />
                       <span style={{ fontSize: '0.875rem', fontWeight: '500', color: '#92400e' }}>Security Tips</span>
                     </div>
                     <ul style={{ fontSize: '0.75rem', color: '#78350f', margin: '0.25rem 0 0 1.5rem', padding: 0 }}>
@@ -3620,7 +3744,8 @@ export default function SettingsPageClient() {
                       )}
                       {passwordSettings.confirmPassword && passwordSettings.newPassword === passwordSettings.confirmPassword && passwordSettings.newPassword.length >= 8 && (
                         <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: '0.25rem' }}>
-                          Γ£ô Passwords match
+                          <CheckCircle style={{ width: '0.75rem', height: '0.75rem', display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
+                          Passwords match
                         </div>
                       )}
                     </div>
@@ -3660,7 +3785,7 @@ export default function SettingsPageClient() {
                         gap: '0.5rem'
                       }}
                     >
-                      <Shield style={{ width: '1rem', height: '1rem' }} />
+                      <Save style={{ width: '1rem', height: '1rem' }} />
                       {changingPassword ? 'Updating Password...' : 'Update Password'}
                     </button>
                   </div>
@@ -3817,7 +3942,7 @@ export default function SettingsPageClient() {
                       value={companySettings.businessHours}
                       onChange={(e) => (userRole !== 'installer' && userRole !== 'coordinator' && userRole !== 'manager') && setCompanySettings({ ...companySettings, businessHours: e.target.value })}
                       disabled={userRole === 'installer' || userRole === 'coordinator' || userRole === 'manager'}
-                      placeholder="e.g., Open Γïà Closes 7 pm"
+                      placeholder="e.g., Open - Closes 7 pm"
                       style={{
                         width: '100%',
                         padding: '0.75rem',
@@ -4394,7 +4519,7 @@ export default function SettingsPageClient() {
                       fontSize: '0.75rem',
                       color: '#92400e'
                     }}>
-                      <strong>≡ƒÆí Tip:</strong> Click "Send Test Notification" to verify your configuration works. Check the browser console (F12) for detailed logs.
+                      <strong>💡 Tip:</strong> Click "Send Test Notification" to verify your configuration works. Check the browser console (F12) for detailed logs.
                     </div>
                   </>
                 )}
@@ -4798,7 +4923,7 @@ export default function SettingsPageClient() {
                           padding: '0.375rem 0.875rem',
                           backgroundColor: '#fef3c7',
                           borderRadius: '0.5rem'
-                        }}>ΓÅ▒∩╕Å Trial Period Active</span>
+                        }}>⏱️ Trial Period Active</span>
                       ) : subscriptionStatus === 'active' && (subscription?.status === 'active' || paymentProofs.some(p => p.status === 'approved')) ? (
                         <span style={{ 
                           color: '#059669', 
@@ -4809,7 +4934,10 @@ export default function SettingsPageClient() {
                           padding: '0.375rem 0.875rem',
                           backgroundColor: '#dcfce7',
                           borderRadius: '0.5rem'
-                        }}>Γ£ô Active</span>
+                        }}>
+                          <CheckCircle style={{ width: '0.875rem', height: '0.875rem', display: 'inline', marginRight: '0.25rem' }} />
+                          Active
+                        </span>
                       ) : (
                         <span style={{ 
                           color: '#dc2626', 
@@ -4886,7 +5014,7 @@ export default function SettingsPageClient() {
                         borderRadius: '0.5rem',
                         border: '1px solid #fecaca'
                       }}>
-                        ΓÜá∩╕Å Your trial period has expired. Please submit payment proof to continue using the service.
+                        ⚠️ Your trial period has expired. Please submit payment proof to continue using the service.
                       </div>
                     )}
                     {!timeRemaining?.expired && (
@@ -4899,10 +5027,10 @@ export default function SettingsPageClient() {
                         marginTop: '1rem',
                         border: '1px solid #fde68a'
                       }}>
-                        <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem' }}>≡ƒôï Next Steps:</strong>
+                        <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem' }}>Next Steps:</strong>
                         <ul style={{ margin: '0', paddingLeft: '1.25rem', lineHeight: '1.8' }}>
                           <li>Submit payment proof before trial expires to avoid service interruption</li>
-                          <li>Payment amount: <strong>Γé╣12,000 per year</strong> (Γé╣1,000 per month)</li>
+                          <li>Payment amount: <strong>₹12,000 per year</strong> (₹1,000 per month)</li>
                           <li>Once payment is approved, your account will be active for 365 days</li>
                         </ul>
                       </div>
@@ -4963,7 +5091,7 @@ export default function SettingsPageClient() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                       <CheckCircle style={{ width: '1.25rem', height: '1.25rem', color: '#059669' }} />
                       <div style={{ fontSize: '1rem', fontWeight: '600', color: '#166534' }}>
-                        Payment Approved Γ£ô
+                        Payment Approved
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', fontSize: '0.875rem' }}>
@@ -4974,7 +5102,7 @@ export default function SettingsPageClient() {
                       <div>
                         <div style={{ color: '#6b7280', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Amount</div>
                         <div style={{ fontWeight: '600', color: '#059669' }}>
-                          {subscriptionData.currency === 'INR' ? 'Γé╣' : '$'}{subscriptionData.amount.toLocaleString('en-IN')}/year
+                          {subscriptionData.currency === 'INR' ? '₹' : '$'}{subscriptionData.amount.toLocaleString('en-IN')}/year
                         </div>
                       </div>
                       {subscriptionData.billing_period_start && (
@@ -5043,7 +5171,7 @@ export default function SettingsPageClient() {
                     </p>
                     <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem', paddingLeft: '0.5rem' }}>
                       <li style={{ marginBottom: '0.75rem' }}>
-                        <strong>Make Payment:</strong> Transfer Γé╣12,000 to the account details provided by support (contact support for payment information)
+                        <strong>Make Payment:</strong> Transfer ₹12,000 to the account details provided by support (contact support for payment information)
                       </li>
                       <li style={{ marginBottom: '0.75rem' }}>
                         <strong>Collect Proof:</strong> Take a screenshot or download your bank transaction receipt/statement showing the payment
@@ -5344,7 +5472,22 @@ export default function SettingsPageClient() {
                             color: proof.status === 'approved' ? '#166534' : proof.status === 'rejected' ? '#dc2626' : '#92400e',
                             border: `1px solid ${proof.status === 'approved' ? '#86efac' : proof.status === 'rejected' ? '#fecaca' : '#fde68a'}`
                           }}>
-                            {proof.status === 'approved' ? 'Γ£ô Approved' : proof.status === 'rejected' ? 'Γ£ù Rejected' : 'ΓÅ│ Pending'}
+                            {proof.status === 'approved' ? (
+                              <>
+                                <CheckCircle style={{ width: '0.875rem', height: '0.875rem', display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
+                                Approved
+                              </>
+                            ) : proof.status === 'rejected' ? (
+                              <>
+                                <XCircle style={{ width: '0.875rem', height: '0.875rem', display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
+                                Rejected
+                              </>
+                            ) : (
+                              <>
+                                <Clock style={{ width: '0.875rem', height: '0.875rem', display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
+                                Pending
+                              </>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -5445,22 +5588,23 @@ export default function SettingsPageClient() {
               {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} settings coming soon...
             </div>
           )}
-                </div>
-                </div>
+          </div>
+        </div>
+      </div>
 
       {/* User Management Modal */}
       {showUserModal && (
-      <UserManagementModal
-        isOpen={showUserModal}
-        onClose={() => {
-          setShowUserModal(false)
-          setEditingItem(null)
-        }}
-        editingUser={editingItem}
-        role={modalRole}
+        <UserManagementModal
+          isOpen={showUserModal}
+          onClose={() => {
+            setShowUserModal(false)
+            setEditingItem(null)
+          }}
+          editingUser={editingItem}
+          role={modalRole}
           onSuccess={handleModalSuccess}
-      />
+        />
       )}
-    </div>
+    </>
   )
 }

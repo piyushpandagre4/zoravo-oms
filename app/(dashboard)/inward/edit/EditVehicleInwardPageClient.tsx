@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Car, Save, ArrowLeft, Plus, Trash2, Calendar, Clock, User, Phone, Building, MapPin, FileText, Package, DollarSign, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
 
 interface ProductItem {
   product: string
@@ -128,14 +129,45 @@ export default function EditVehicleInwardPageClient() {
 
   const loadManagers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, role')
-        .in('role', ['manager', 'admin'])
-        .eq('status', 'active')
-
-      if (error) throw error
-      setManagers(data || [])
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      if (!isSuper && tenantId) {
+        // Get managers for this tenant via tenant_users table
+        const { data: tenantUsers, error: tenantUsersError } = await supabase
+          .from('tenant_users')
+          .select('user_id')
+          .eq('tenant_id', tenantId)
+          .in('role', ['manager', 'admin'])
+        
+        if (tenantUsersError) throw tenantUsersError
+        
+        if (tenantUsers && tenantUsers.length > 0) {
+          const userIds = tenantUsers.map(tu => tu.user_id)
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, name, role')
+            .in('id', userIds)
+            .eq('status', 'active')
+            .order('name', { ascending: true })
+          
+          if (error) throw error
+          setManagers(data || [])
+        } else {
+          setManagers([])
+        }
+      } else {
+        // Super admin sees all managers
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, role')
+          .in('role', ['manager', 'admin'])
+          .eq('status', 'active')
+          .order('name', { ascending: true })
+        
+        if (error) throw error
+        setManagers(data || [])
+      }
     } catch (error) {
       console.error('Error loading managers:', error)
       setManagers([])
@@ -144,11 +176,22 @@ export default function EditVehicleInwardPageClient() {
 
   const loadLocations = async () => {
     try {
-      const { data, error } = await supabase
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      let query = supabase
         .from('locations')
         .select('id, name')
         .eq('status', 'active')
-
+        .order('name', { ascending: true })
+      
+      // Add tenant filter for data isolation
+      if (!isSuper && tenantId) {
+        query = query.eq('tenant_id', tenantId)
+      }
+      
+      const { data, error } = await query
+      
       if (error) throw error
       setLocations(data || [])
     } catch (error) {
@@ -174,11 +217,22 @@ export default function EditVehicleInwardPageClient() {
 
   const loadDepartments = async () => {
     try {
-      const { data, error } = await supabase
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      let query = supabase
         .from('departments')
         .select('id, name')
         .eq('status', 'active')
-
+        .order('name', { ascending: true })
+      
+      // Add tenant filter for data isolation
+      if (!isSuper && tenantId) {
+        query = query.eq('tenant_id', tenantId)
+      }
+      
+      const { data, error } = await query
+      
       if (error) throw error
       setDepartments(data || [])
     } catch (error) {

@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/reports/daily-vehicle-report",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/check-subscription-expiry",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+

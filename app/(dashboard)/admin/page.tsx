@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -19,7 +19,12 @@ import {
   Plus,
   Mail,
   Phone,
-  User
+  User,
+  Database,
+  Key,
+  Code,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 
@@ -63,6 +68,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [expandedTenants, setExpandedTenants] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     loadTenants()
@@ -202,6 +208,16 @@ export default function AdminDashboard() {
                          (filterStatus === 'paid' && tenant.subscription_status === 'active')
     return matchesSearch && matchesFilter
   })
+
+  const toggleTenantExpansion = (tenantId: string) => {
+    const newExpanded = new Set(expandedTenants)
+    if (newExpanded.has(tenantId)) {
+      newExpanded.delete(tenantId)
+    } else {
+      newExpanded.add(tenantId)
+    }
+    setExpandedTenants(newExpanded)
+  }
 
   const stats = {
     total: tenants.length,
@@ -373,7 +389,8 @@ export default function AdminDashboard() {
                 {filteredTenants.map((tenant, index) => {
                   const statusBadge = getStatusBadge(tenant)
                   return (
-                    <tr key={tenant.id} style={{ borderBottom: index < filteredTenants.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
+                    <React.Fragment key={tenant.id}>
+                      <tr style={{ borderBottom: index < filteredTenants.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
                       <td style={{ padding: '1rem' }}>
                         <div style={{ 
                           fontWeight: '700', 
@@ -493,23 +510,127 @@ export default function AdminDashboard() {
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'right' }}>
                         <button
-                          onClick={() => {
-                            const tenantPath = '/admin/tenants/' + tenant.id
-                            router.push(tenantPath)
-                          }}
+                          onClick={() => toggleTenantExpansion(tenant.id)}
                           style={{
                             padding: '0.5rem',
                             backgroundColor: 'transparent',
                             border: 'none',
                             cursor: 'pointer',
-                            color: '#6b7280'
+                            color: '#6b7280',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
                           }}
-                          title="View Details"
+                          title={expandedTenants.has(tenant.id) ? "Hide Details" : "Show Details"}
                         >
-                          <Eye style={{ width: '1rem', height: '1rem' }} />
+                          {expandedTenants.has(tenant.id) ? (
+                            <ChevronUp style={{ width: '1rem', height: '1rem' }} />
+                          ) : (
+                            <ChevronDown style={{ width: '1rem', height: '1rem' }} />
+                          )}
                         </button>
                       </td>
                     </tr>
+                    {expandedTenants.has(tenant.id) && (
+                      <tr style={{ backgroundColor: '#f9fafb', borderBottom: index < filteredTenants.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
+                        <td colSpan={8} style={{ padding: '1.5rem' }}>
+                          <div style={{ 
+                            backgroundColor: '#1f2937', 
+                            borderRadius: '0.5rem', 
+                            padding: '1.5rem',
+                            fontFamily: 'monospace',
+                            fontSize: '0.75rem',
+                            color: '#e5e7eb',
+                            overflow: 'auto'
+                          }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '1rem' }}>
+                              <div>
+                                <div style={{ color: '#60a5fa', marginBottom: '0.5rem', fontWeight: '600' }}>
+                                  <Database size={14} style={{ display: 'inline', marginRight: '0.5rem' }} />
+                                  Tenant Details
+                                </div>
+                                <div style={{ color: '#9ca3af', lineHeight: '1.8' }}>
+                                  <div><span style={{ color: '#fbbf24' }}>ID:</span> {tenant.id}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Code:</span> {tenant.tenant_code || 'N/A'}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Active:</span> {tenant.is_active ? '✓' : '✗'}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Free:</span> {tenant.is_free ? '✓' : '✗'}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Status:</span> {tenant.subscription_status}</div>
+                                  {tenant.trial_ends_at && (
+                                    <div><span style={{ color: '#fbbf24' }}>Trial Ends:</span> {new Date(tenant.trial_ends_at).toISOString()}</div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {tenant.subscription && (
+                                <div>
+                                  <div style={{ color: '#60a5fa', marginBottom: '0.5rem', fontWeight: '600' }}>
+                                    <DollarSign size={14} style={{ display: 'inline', marginRight: '0.5rem' }} />
+                                    Subscription
+                                  </div>
+                                  <div style={{ color: '#9ca3af', lineHeight: '1.8' }}>
+                                    <div><span style={{ color: '#fbbf24' }}>Status:</span> {tenant.subscription.status}</div>
+                                    <div><span style={{ color: '#fbbf24' }}>Amount:</span> ₹{tenant.subscription.amount?.toLocaleString('en-IN') || 'N/A'}</div>
+                                    {tenant.subscription.billing_period_start && (
+                                      <div><span style={{ color: '#fbbf24' }}>Start:</span> {new Date(tenant.subscription.billing_period_start).toISOString()}</div>
+                                    )}
+                                    {tenant.subscription.billing_period_end && (
+                                      <div><span style={{ color: '#fbbf24' }}>End:</span> {new Date(tenant.subscription.billing_period_end).toISOString()}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {tenant.payment_proof && (
+                                <div>
+                                  <div style={{ color: '#60a5fa', marginBottom: '0.5rem', fontWeight: '600' }}>
+                                    <CheckCircle size={14} style={{ display: 'inline', marginRight: '0.5rem' }} />
+                                    Payment Proof
+                                  </div>
+                                  <div style={{ color: '#9ca3af', lineHeight: '1.8' }}>
+                                    <div><span style={{ color: '#fbbf24' }}>Status:</span> {tenant.payment_proof.status}</div>
+                                    <div><span style={{ color: '#fbbf24' }}>Txn ID:</span> {tenant.payment_proof.transaction_id || 'N/A'}</div>
+                                    <div><span style={{ color: '#fbbf24' }}>Created:</span> {new Date(tenant.payment_proof.created_at).toISOString()}</div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              <div>
+                                <div style={{ color: '#60a5fa', marginBottom: '0.5rem', fontWeight: '600' }}>
+                                  <Key size={14} style={{ display: 'inline', marginRight: '0.5rem' }} />
+                                  API Info
+                                </div>
+                                <div style={{ color: '#9ca3af', lineHeight: '1.8' }}>
+                                  <div><span style={{ color: '#fbbf24' }}>Workspace:</span> {tenant.workspace_url}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>URL:</span> https://{tenant.workspace_url}.zoravo.com</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Users:</span> {tenant.user_count || 0}</div>
+                                  <div><span style={{ color: '#fbbf24' }}>Created:</span> {new Date(tenant.created_at).toISOString()}</div>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #374151' }}>
+                              <div style={{ color: '#60a5fa', marginBottom: '0.5rem', fontWeight: '600' }}>
+                                <Code size={14} style={{ display: 'inline', marginRight: '0.5rem' }} />
+                                Raw JSON
+                              </div>
+                              <pre style={{ 
+                                margin: 0, 
+                                padding: '1rem', 
+                                backgroundColor: '#111827', 
+                                borderRadius: '0.375rem',
+                                overflow: 'auto',
+                                maxHeight: '300px',
+                                fontSize: '0.7rem',
+                                lineHeight: '1.5'
+                              }}>
+                                {JSON.stringify(tenant, null, 2)}
+                              </pre>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   )
                 })}
               </tbody>

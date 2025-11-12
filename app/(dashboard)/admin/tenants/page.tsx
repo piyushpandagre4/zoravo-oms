@@ -423,27 +423,6 @@ export default function TenantsManagementPage() {
           <option value="trial">Trial</option>
         </select>
         <button
-          onClick={handleSendWelcomeEmailToAll}
-          disabled={sendingEmail === 'all'}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: sendingEmail === 'all' ? '#9ca3af' : '#059669',
-            color: 'white',
-            border: 'none',
-            borderRadius: '0.5rem',
-            fontWeight: '500',
-            cursor: sendingEmail === 'all' ? 'not-allowed' : 'pointer',
-            fontSize: '0.875rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            opacity: sendingEmail === 'all' ? 0.6 : 1
-          }}
-        >
-          <Mail style={{ width: '1rem', height: '1rem' }} />
-          {sendingEmail === 'all' ? 'Sending...' : 'Send Welcome Email to All'}
-        </button>
-        <button
           onClick={() => setDeveloperView(!developerView)}
           style={{
             padding: '0.75rem 1.5rem',
@@ -462,25 +441,6 @@ export default function TenantsManagementPage() {
         >
           <Code style={{ width: '1rem', height: '1rem' }} />
           {developerView ? 'Normal View' : 'Developer View'}
-        </button>
-        <button
-          onClick={() => router.push('/admin/tenants/new')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: '#2563eb',
-            color: 'white',
-            border: 'none',
-            borderRadius: '0.5rem',
-            fontWeight: '500',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem'
-          }}
-        >
-          <Plus style={{ width: '1rem', height: '1rem' }} />
-          Create Tenant
         </button>
       </div>
 
@@ -614,21 +574,6 @@ export default function TenantsManagementPage() {
                       {new Date(tenant.created_at).toLocaleDateString()}
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'right' }}>
-                        <button
-                          onClick={() => handleSendWelcomeEmail(tenant)}
-                          disabled={sendingEmail === tenant.id}
-                          style={{
-                            padding: '0.5rem',
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            cursor: sendingEmail === tenant.id ? 'not-allowed' : 'pointer',
-                            color: sendingEmail === tenant.id ? '#9ca3af' : '#2563eb',
-                            opacity: sendingEmail === tenant.id ? 0.5 : 1
-                          }}
-                          title="Send Welcome Email"
-                        >
-                          <Mail style={{ width: '1rem', height: '1rem' }} />
-                        </button>
                       </td>
                     </tr>
                     {showDevDetails && (

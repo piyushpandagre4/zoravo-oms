@@ -20,10 +20,18 @@ function DashboardLayoutContent({ children }: DashboardLayoutProps) {
   const [userName, setUserName] = useState('Demo Admin')
   const [userEmail, setUserEmail] = useState('raghav@sunkool.in')
   const [loading, setLoading] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
   const supabase = createClient()
 
   // Check if this is an admin route - if so, skip tenant layout
   const isAdminRoute = pathname?.startsWith('/admin')
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   useEffect(() => {
     // Skip loading user data for admin routes - admin layout handles it
@@ -102,9 +110,20 @@ function DashboardLayoutContent({ children }: DashboardLayoutProps) {
   // For regular tenant routes, render with sidebar and topbar wrapped in SubscriptionGuard
   return (
     <SubscriptionGuard>
-      <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f8fafc' }}>
+      <div style={{ 
+        display: 'flex', 
+        height: '100vh', 
+        backgroundColor: '#f8fafc',
+        flexDirection: isMobile ? 'column' : 'row'
+      }}>
         <Sidebar userRole={userRole} />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          width: isMobile ? '100%' : 'auto'
+        }}>
           {!loading && (
             <Topbar 
               userRole={userRole}
@@ -112,7 +131,11 @@ function DashboardLayoutContent({ children }: DashboardLayoutProps) {
               userEmail={userEmail}
             />
           )}
-          <main style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}>
+          <main style={{ 
+            flex: 1, 
+            overflow: 'auto', 
+            padding: isMobile ? '1rem' : '1.5rem' 
+          }}>
             {children}
           </main>
         </div>

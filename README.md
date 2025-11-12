@@ -1,4 +1,11 @@
-# Zoravo OMS - Car Accessories Management System
+# ZORAVO OMS - Car Accessories Management System
+
+> **Complete Order Management System for Car Accessories Installation Businesses**
+
+[![Next.js](https://img.shields.io/badge/Next.js-15.5.6-black)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.2.2-blue)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-Backend-green)](https://supabase.com/)
+[![Vercel](https://img.shields.io/badge/Vercel-Deployed-black)](https://vercel.com/)
 
 ## Environment Variables
 

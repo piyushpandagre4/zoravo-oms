@@ -12,7 +12,7 @@ export default function AboutPageClient() {
           borderRadius: '1.5rem',
           padding: '3rem 2.5rem',
           marginBottom: '2rem',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)',
           border: 'none',
           color: 'white',
           position: 'relative',
@@ -257,7 +257,7 @@ export default function AboutPageClient() {
 
       {/* PRICING CTA */}
       <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)',
         borderRadius: '1.5rem',
         padding: '3rem 2rem',
         textAlign: 'center',
@@ -401,7 +401,7 @@ export default function AboutPageClient() {
                 Facebook
               </a>
               <a 
-                href="https://youtube.com/@sunkool?si=pYNtmgiWmkZKBNEa" 
+                href="https://www.youtube.com/@sunkool" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 style={{ 

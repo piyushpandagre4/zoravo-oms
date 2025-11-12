@@ -47,9 +47,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { provider, config, to, message } = body
+    const { provider, config, to, message, attachment } = body
 
-    console.log('[WhatsApp API] Request received:', { provider, to, hasConfig: !!config, hasMessage: !!message })
+    console.log('[WhatsApp API] Request received:', { provider, to, hasConfig: !!config, hasMessage: !!message, hasAttachment: !!attachment })
 
     if (!provider || !config || !to || !message) {
       console.error('[WhatsApp API] Missing required fields:', { provider, hasConfig: !!config, to, hasMessage: !!message })
@@ -59,16 +59,16 @@ export async function POST(request: NextRequest) {
     // Handle different providers
     switch (provider) {
       case 'messageautosender':
-        return await sendViaMessageAutoSender(config, to, message)
+        return await sendViaMessageAutoSender(config, to, message, attachment)
       
       case 'twilio':
-        return await sendViaTwilio(config, to, message)
+        return await sendViaTwilio(config, to, message, attachment)
       
       case 'cloud-api':
-        return await sendViaCloudAPI(config, to, message)
+        return await sendViaCloudAPI(config, to, message, attachment)
       
       case 'custom':
-        return await sendViaCustom(config, to, message)
+        return await sendViaCustom(config, to, message, attachment)
       
       default:
         return NextResponse.json({ error: 'Unknown provider' }, { status: 400 })
@@ -79,30 +79,57 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function sendViaMessageAutoSender(config: any, to: string, message: string) {
+async function sendViaMessageAutoSender(config: any, to: string, message: string, attachment?: any) {
   if (!config.apiKey || !config.userId || !config.password) {
     return NextResponse.json({ error: 'MessageAutoSender configuration is incomplete' }, { status: 400 })
   }
 
   try {
-    // Normalize phone number
-    let phoneNumber = to.replace(/[^\d+]/g, '')
-    if (phoneNumber.startsWith('+')) {
-      phoneNumber = phoneNumber.substring(1)
+    // First, send the text message
+    const textMessageResult = await sendTextMessage(config, to, message)
+    
+    // If attachment is provided, send it as a document
+    if (attachment && attachment.type === 'document' && attachment.data) {
+      // Send document separately
+      // Note: MessageAutoSender may require different API endpoint for documents
+      // For now, we'll try to send it using the same endpoint with document format
+      try {
+        const docResult = await sendDocumentMessage(config, to, attachment)
+        if (!docResult.success) {
+          console.warn('[WhatsApp API] Document send failed, but text message was sent:', docResult.error)
+        }
+      } catch (docError: any) {
+        console.warn('[WhatsApp API] Error sending document:', docError.message)
+        // Don't fail the whole request if document fails
+      }
     }
     
-    // If it's exactly 10 digits, assume it's Indian and add 91
-    if (/^\d{10}$/.test(phoneNumber)) {
-      phoneNumber = '91' + phoneNumber
-    }
-    
-    // If it's 11 digits and starts with 0, remove 0 and add 91
-    if (/^0\d{10}$/.test(phoneNumber)) {
-      phoneNumber = '91' + phoneNumber.substring(1)
-    }
+    return textMessageResult
+  } catch (error: any) {
+    console.error('[WhatsApp API] MessageAutoSender error:', error)
+    return NextResponse.json({ success: false, error: error.message || 'Failed to connect to MessageAutoSender API' }, { status: 500 })
+  }
+}
 
-    // Construct API URL - MessageAutoSender uses /api/v1/message/create
-    let apiUrl = config.webhookUrl || 'https://app.messageautosender.com/api/v1/message/create'
+async function sendTextMessage(config: any, to: string, message: string) {
+  // Normalize phone number
+  let phoneNumber = to.replace(/[^\d+]/g, '')
+  if (phoneNumber.startsWith('+')) {
+    phoneNumber = phoneNumber.substring(1)
+  }
+  
+  // If it's exactly 10 digits, assume it's Indian and add 91
+  if (/^\d{10}$/.test(phoneNumber)) {
+    phoneNumber = '91' + phoneNumber
+  }
+  
+  // If it's 11 digits and starts with 0, remove 0 and add 91
+  if (/^0\d{10}$/.test(phoneNumber)) {
+    phoneNumber = '91' + phoneNumber.substring(1)
+  }
+
+  // Construct API URL - MessageAutoSender uses /api/v1/message/create
+  let apiUrl = config.webhookUrl || 'https://app.messageautosender.com/api/v1/message/create'
     
     // If webhookUrl is provided, check if it already includes the path
     if (config.webhookUrl) {
@@ -195,10 +222,66 @@ async function sendViaMessageAutoSender(config: any, to: string, message: string
       success: false, 
       error: 'Authentication failed with all methods. Please verify your API Key, User ID, and Password are correct. Check MessageAutoSender documentation for the correct authentication format.' 
     }, { status: 401 })
+}
 
+async function sendDocumentMessage(config: any, to: string, attachment: any) {
+  // Normalize phone number
+  let phoneNumber = to.replace(/[^\d+]/g, '')
+  if (phoneNumber.startsWith('+')) {
+    phoneNumber = phoneNumber.substring(1)
+  }
+  
+  if (/^\d{10}$/.test(phoneNumber)) {
+    phoneNumber = '91' + phoneNumber
+  }
+  
+  if (/^0\d{10}$/.test(phoneNumber)) {
+    phoneNumber = '91' + phoneNumber.substring(1)
+  }
+
+  // Try to send document via MessageAutoSender
+  // Note: MessageAutoSender API may require different endpoint or format for documents
+  // For now, we'll try sending the base64 data in JSON format
+  const apiUrl = config.webhookUrl?.replace('/message/create', '/document/send') || 
+                 config.webhookUrl?.replace('/api/whatsapp/send', '/api/v1/document/send') ||
+                 'https://app.messageautosender.com/api/v1/document/send'
+
+  try {
+    // Convert base64 to buffer if needed
+    const fileDataBase64 = typeof attachment.data === 'string' 
+      ? attachment.data
+      : attachment.data.toString('base64')
+
+    // Try sending as JSON with base64 data
+    const payload = {
+      receiverMobileNo: `+${phoneNumber}`,
+      filename: attachment.filename,
+      fileData: fileDataBase64,
+      mimeType: attachment.mimeType || 'application/pdf',
+      caption: 'Daily Vehicle Report PDF'
+    }
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'x-api-key': config.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    if (response.ok) {
+      return { success: true }
+    } else {
+      const errorText = await response.text()
+      console.warn('[WhatsApp API] Document send failed:', errorText)
+      // Document sending may not be supported - this is okay, text message was sent
+      return { success: false, error: 'Document send not supported by API' }
+    }
   } catch (error: any) {
-    console.error('[WhatsApp API] MessageAutoSender error:', error)
-    return NextResponse.json({ success: false, error: error.message || 'Failed to connect to MessageAutoSender API' }, { status: 500 })
+    console.warn('[WhatsApp API] Document send error:', error.message)
+    // Don't fail - text message was already sent
+    return { success: false, error: error.message }
   }
 }
 

@@ -531,7 +531,7 @@ export default function AccountsPageClient() {
   }
 
   const formatCurrency = (amount: number) => {
-    return `Γé╣${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return `Rs. ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
   const generateCSV = (entries: AccountEntry[]): string => {
@@ -1514,7 +1514,7 @@ export default function AccountsPageClient() {
                               </span>
                             </div>
                             <div style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.5rem' }}>
-                              {entry.model} ΓÇó {entry.vehicleNumber}
+                              {entry.model} • {entry.vehicleNumber}
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', fontSize: '0.875rem', color: '#64748b' }}>
                               {entry.location && (
@@ -1631,11 +1631,20 @@ export default function AccountsPageClient() {
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  fontSize: '1.25rem',
-                  color: '#6b7280'
+                  justifyContent: 'center',
+                  color: '#6b7280',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e5e7eb'
+                  e.currentTarget.style.color = '#374151'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6'
+                  e.currentTarget.style.color = '#6b7280'
                 }}
               >
-                ├ù
+                <X style={{ width: '1.25rem', height: '1.25rem' }} />
               </button>
             </div>
 
@@ -1999,7 +2008,7 @@ export default function AccountsPageClient() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <div>
                           <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem', display: 'block' }}>
-                            Discount Amount (Γé╣)
+                            Discount Amount (Rs.)
                           </label>
                           <input
                             type="number"

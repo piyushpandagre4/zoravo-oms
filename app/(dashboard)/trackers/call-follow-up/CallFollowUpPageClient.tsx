@@ -59,19 +59,13 @@ export default function CallFollowUpPageClient() {
       if (error) {
         // Check if error is due to missing tenant_id column (PostgreSQL error code 42703 = undefined_column)
         if (error.code === '42703' && error.message?.includes('tenant_id')) {
-          console.error('Γ¥î ERROR: tenant_id column is missing in call_follow_up table.')
-          console.error('≡ƒôï SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
+          console.error('ERROR: tenant_id column is missing in call_follow_up table.')
+          console.error('SOLUTION: Please run this SQL migration in Supabase SQL Editor:')
           console.error('   File: database/add_tenant_id_to_call_follow_up.sql')
           console.error('   This will add the tenant_id column and enable multi-tenant data isolation.')
           alert('Database migration required: Please run database/add_tenant_id_to_call_follow_up.sql in Supabase SQL Editor to add tenant_id column to call_follow_up table.')
         } else {
-          // More detailed error logging for other errors
-          console.error('Error fetching calls:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          })
+          console.error('Error fetching calls:', error.message)
         }
         setCalls([])
         return
@@ -79,11 +73,7 @@ export default function CallFollowUpPageClient() {
 
       setCalls(data || [])
     } catch (error: any) {
-      // More detailed error logging for catch block
-      console.error('Error fetching calls (catch):', {
-        message: error?.message || 'Unknown error',
-        error: error
-      })
+      console.error('Error fetching calls:', error?.message || 'Unknown error')
       setCalls([])
     }
   }
@@ -693,10 +683,13 @@ export default function CallFollowUpPageClient() {
                   backgroundColor: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
-                  padding: '0.5rem'
+                  padding: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
               >
-                Γ£ò
+                <X style={{ width: '1.25rem', height: '1.25rem', color: '#6b7280' }} />
               </button>
             </div>
 
