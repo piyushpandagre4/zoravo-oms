@@ -40,7 +40,7 @@ export default function PlatformSettingsPage() {
   const supabase = createClient()
   const [settings, setSettings] = useState<PlatformSettings>({
     platformName: 'ZORAVO OMS',
-    supportEmail: 'support@zoravo.com',
+    supportEmail: 'info@zoravo.in',
     defaultTrialDays: 24,
     defaultCurrency: 'INR',
     subscriptionPlans: [
@@ -60,8 +60,8 @@ export default function PlatformSettingsPage() {
     emailSettings: {
       provider: 'resend',
       apiKey: '',
-      fromEmail: 'social@sunkool.in',
-      replyToEmail: 'support@zoravo.com',
+      fromEmail: 'noreply@zoravo.in',
+      replyToEmail: 'info@zoravo.in',
       enabled: true
     }
   })
@@ -1313,7 +1313,7 @@ export default function PlatformSettingsPage() {
                     ...settings,
                     emailSettings: { ...settings.emailSettings, fromEmail: e.target.value }
                   })}
-                  placeholder="noreply@yourdomain.com"
+                  placeholder="noreply@zoravo.in"
                   style={{
                     width: '100%',
                     maxWidth: '400px',
@@ -1346,7 +1346,7 @@ export default function PlatformSettingsPage() {
                     ...settings,
                     emailSettings: { ...settings.emailSettings, replyToEmail: e.target.value }
                   })}
-                  placeholder="support@yourdomain.com"
+                  placeholder="info@zoravo.in"
                   style={{
                     width: '100%',
                     maxWidth: '400px',

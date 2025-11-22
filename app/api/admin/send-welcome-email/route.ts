@@ -218,14 +218,16 @@ export async function POST(request: Request) {
       .is('tenant_id', null)
       .maybeSingle()
 
-    const supportEmail = supportEmailSetting?.setting_value || 'social@sunkool.in'
+    // Get support email from settings or use default
+    const supportEmail = supportEmailSetting?.setting_value || 'info@zoravo.in'
 
     // Determine pricing
     const pricingAmount = subscription?.amount || 12000
     const currency = subscription?.currency || 'INR'
 
-    // Generate login URL
-    const loginUrl = `https://${tenant.workspace_url}.zoravo.com/login`
+    // Generate login URL - use environment variable or default to zoravo.in
+    const baseDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || 'zoravo.in'
+    const loginUrl = `https://${tenant.workspace_url}.${baseDomain}/login`
 
     // Send welcome email
     const emailResult = await sendWelcomeEmail({

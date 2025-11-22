@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { 
   Car, 
@@ -35,8 +35,9 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 
-export default function LandingPage() {
+function LandingPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [showCreateAccount, setShowCreateAccount] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [animatedStats, setAnimatedStats] = useState({
@@ -45,6 +46,16 @@ export default function LandingPage() {
     services: 0,
     team: 0
   })
+
+  // Check for createAccount query parameter
+  useEffect(() => {
+    const createAccount = searchParams.get('createAccount')
+    if (createAccount === 'true') {
+      setShowCreateAccount(true)
+      // Remove query parameter from URL
+      router.replace('/', { scroll: false })
+    }
+  }, [searchParams, router])
 
   // Sticky header on scroll
   useEffect(() => {
@@ -306,7 +317,7 @@ export default function LandingPage() {
               Register
             </button>
             <a
-              href="mailto:piyush@sunkool.in"
+              href="mailto:info@zoravo.in"
               style={{
                 padding: '0.625rem 1.5rem',
                 backgroundColor: '#f8fafc',
@@ -1275,7 +1286,7 @@ export default function LandingPage() {
               </div>
               <div>
                 <a
-                  href="mailto:piyush@sunkool.in"
+                  href="mailto:info@zoravo.in"
                   style={{
                     fontSize: '0.9375rem',
                     color: '#2563eb',
@@ -1292,7 +1303,7 @@ export default function LandingPage() {
                     e.currentTarget.style.textDecoration = 'none'
                   }}
                 >
-                  piyush@sunkool.in
+                  info@zoravo.in
                 </a>
               </div>
 
@@ -1707,7 +1718,7 @@ export default function LandingPage() {
                   Pricing
                 </a>
                 <a
-                  href="mailto:piyush@sunkool.in?subject=Support Request&body=Hello,%0D%0A%0D%0AI need assistance with Zoravo OMS.%0D%0A%0D%0AThank you."
+                  href="mailto:info@zoravo.in?subject=Support Request&body=Hello,%0D%0A%0D%0AI need assistance with Zoravo OMS.%0D%0A%0D%0AThank you."
                   style={{
                     fontSize: '0.875rem',
                     color: '#9ca3af',
@@ -1724,7 +1735,7 @@ export default function LandingPage() {
                   Support
                 </a>
                 <a
-                  href="mailto:piyush@sunkool.in?subject=Contact Request&body=Hello,%0D%0A%0D%0AI would like to get in touch regarding Zoravo OMS.%0D%0A%0D%0AThank you."
+                  href="mailto:info@zoravo.in?subject=Contact Request&body=Hello,%0D%0A%0D%0AI would like to get in touch regarding Zoravo OMS.%0D%0A%0D%0AThank you."
                   style={{
                     fontSize: '0.875rem',
                     color: '#9ca3af',
@@ -1850,6 +1861,14 @@ export default function LandingPage() {
       {/* Create Account Modal */}
       {showCreateAccount && <CreateAccountModal onClose={() => setShowCreateAccount(false)} />}
     </div>
+  )
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={null}>
+      <LandingPageContent />
+    </Suspense>
   )
 }
 
@@ -2243,7 +2262,7 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
                       required
                       value={formData.adminEmail}
                       onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
-                      placeholder="admin@example.com"
+                      placeholder="admin@yourcompany.com"
                       style={{
                         width: '100%',
                         padding: '0.875rem',

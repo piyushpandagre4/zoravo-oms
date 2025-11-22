@@ -513,7 +513,7 @@ export default function TenantsManagementPage() {
                     </td>
                     <td style={{ padding: '1rem' }}>
                       <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                        {tenant.workspace_url + '.zoravo.com'}
+                        {tenant.workspace_url + '.zoravo.in'}
                       </div>
                         {developerView && (
                           <div style={{ fontSize: '0.75rem', color: '#9ca3af', fontFamily: 'monospace', marginTop: '0.25rem' }}>
@@ -658,7 +658,7 @@ export default function TenantsManagementPage() {
                                 </div>
                                 <div style={{ color: '#9ca3af', lineHeight: '1.8' }}>
                                   <div><span style={{ color: '#fbbf24' }}>Workspace:</span> {tenant.workspace_url}</div>
-                                  <div><span style={{ color: '#fbbf24' }}>URL:</span> https://{tenant.workspace_url}.zoravo.com</div>
+                                  <div><span style={{ color: '#fbbf24' }}>URL:</span> https://{tenant.workspace_url}.zoravo.in</div>
                                   <div><span style={{ color: '#fbbf24' }}>Users:</span> {tenant.user_count || 0}</div>
                                   <div><span style={{ color: '#fbbf24' }}>Created:</span> {new Date(tenant.created_at).toISOString()}</div>
                                 </div>

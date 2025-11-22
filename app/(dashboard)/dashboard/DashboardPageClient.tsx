@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown, Save, X, CheckCircle } from 'lucide-react'
+import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown, Save, X, CheckCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { dbService, type DashboardKPIs, type Vehicle, type Invoice } from '@/lib/database-service'
 import { checkUserRole, canViewRevenue, type UserRole } from '@/lib/rbac'
 import DashboardCharts from '@/components/dashboard-charts'
@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { notificationWorkflow } from '@/lib/notification-workflow'
 import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+
 
 export default function DashboardPageClient() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -26,8 +27,39 @@ export default function DashboardPageClient() {
   const [managerNames, setManagerNames] = useState<Map<string, string>>(new Map())
   const [departmentNames, setDepartmentNames] = useState<Map<string, string>>(new Map())
   const [departmentColors, setDepartmentColors] = useState<Map<string, string>>(new Map())
+  const [isFullScreen, setIsFullScreen] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const router = useRouter()
   const supabase = createClient()
+  const vehiclesPerPage = 3 // Show 3 full KIPs cards per page
+
+  // Keyboard navigation for full-screen view
+  useEffect(() => {
+    if (!isFullScreen || userRole !== 'installer') return
+
+    const filteredVehicles = recentVehicles.filter(vehicle => {
+      const status = vehicle.status?.toLowerCase().trim() || ''
+      return status === 'pending' || 
+             status === 'in_progress' || 
+             status === 'in progress' ||
+             status === 'under_installation' ||
+             status === 'under installation'
+    })
+    const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && currentPage > 1) {
+        setCurrentPage(currentPage - 1)
+      } else if (e.key === 'ArrowRight' && currentPage < totalPages) {
+        setCurrentPage(currentPage + 1)
+      } else if (e.key === 'Escape') {
+        setIsFullScreen(false)
+        setCurrentPage(1)
+      }
+    }
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isFullScreen, currentPage, userRole, recentVehicles.length])
   const [adminMetrics, setAdminMetrics] = useState<{
     totalVehicles: number
     jobsInProgress: number
@@ -997,12 +1029,648 @@ export default function DashboardPageClient() {
         )}
 
         {activeTab === 'vehicles' && (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(380px, 1fr))', 
-            gap: isMobile ? '1rem' : '1.5rem' 
-          }}>
-            {recentVehicles
+          <>
+            {/* Full Screen View for Installers - Exact Same Cards */}
+            {isFullScreen && userRole === 'installer' && (() => {
+              const filteredVehicles = recentVehicles.filter(vehicle => {
+                const status = vehicle.status?.toLowerCase().trim() || ''
+                return status === 'pending' || 
+                       status === 'in_progress' || 
+                       status === 'in progress' ||
+                       status === 'under_installation' ||
+                       status === 'under installation'
+              })
+              const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
+              const startIndex = (currentPage - 1) * vehiclesPerPage
+              const endIndex = startIndex + vehiclesPerPage
+              const currentVehicles = filteredVehicles.slice(startIndex, endIndex)
+
+              return (
+                <div style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: '#f8fafc',
+                  zIndex: 9999,
+                  padding: '2rem',
+                  overflow: 'auto'
+                }}>
+                  {/* Header */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '1.5rem',
+                    paddingBottom: '1rem',
+                    borderBottom: '2px solid #e2e8f0'
+                  }}>
+                    <div>
+                      <h1 style={{
+                        fontSize: '2rem',
+                        fontWeight: '700',
+                        color: '#1e293b',
+                        margin: 0,
+                        marginBottom: '0.5rem'
+                      }}>
+                        Recent Vehicles - Full Screen View
+                      </h1>
+                      <p style={{
+                        fontSize: '0.875rem',
+                        color: '#64748b',
+                        margin: 0
+                      }}>
+                        Page {currentPage} of {totalPages} • Showing {currentVehicles.length} of {filteredVehicles.length} vehicles
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsFullScreen(false)
+                        setCurrentPage(1)
+                      }}
+                      style={{
+                        padding: '0.75rem 1.5rem',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '0.5rem',
+                        fontSize: '0.875rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#1d4ed8'
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#2563eb'
+                      }}
+                    >
+                      <Minimize2 style={{ width: '1rem', height: '1rem' }} />
+                      Exit Full Screen
+                    </button>
+                  </div>
+
+                  {/* Vehicles Grid - 3 columns, 1 row (3 cards per page) - FULL KIPs CARDS */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '1.25rem',
+                    marginBottom: '1.5rem',
+                    minHeight: 'calc(100vh - 250px)'
+                  }}>
+                    {currentVehicles.length === 0 ? (
+                      <div style={{
+                        gridColumn: '1 / -1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '4rem',
+                        color: '#64748b',
+                        fontSize: '1.125rem',
+                        backgroundColor: 'white',
+                        borderRadius: '0.75rem',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        No vehicles assigned to you yet.
+                      </div>
+                    ) : currentVehicles.map((vehicle) => {
+                      // Use the EXACT SAME card rendering logic as the dashboard
+                      const statusColors = getStatusColor(vehicle.status)
+                      return (
+                        <div 
+                          key={vehicle.id}
+                          style={{
+                            backgroundColor: 'white',
+                            borderRadius: '0.75rem',
+                            border: '1px solid #e2e8f0',
+                            overflow: 'hidden',
+                            transition: 'all 0.3s',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                            display: 'flex',
+                            flexDirection: 'column'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-4px)'
+                            e.currentTarget.style.boxShadow = '0 10px 25px rgba(0,0,0,0.15)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)'
+                            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'
+                          }}
+                        >
+                          {/* EXACT SAME CARD STRUCTURE - Copy from dashboard */}
+                          {/* Header - EXACT SAME AS DASHBOARD */}
+                          <div style={{
+                            padding: '1.25rem',
+                            backgroundColor: '#f8fafc',
+                            borderBottom: '1px solid #e2e8f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <div>
+                              <div style={{ fontSize: '1.125rem', fontWeight: '700', color: '#111827', marginBottom: '0.25rem' }}>
+                                {vehicle.customer?.name || 'N/A'}
+                              </div>
+                              <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                                {vehicle.registration_number}
+                              </div>
+                            </div>
+                            <span style={{
+                              padding: '0.375rem 0.875rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              backgroundColor: statusColors.bg,
+                              color: statusColors.color
+                            }}>
+                              {vehicle.status.replace('_', ' ').toUpperCase()}
+                            </span>
+                          </div>
+
+                          {/* Details - EXACT SAME AS DASHBOARD */}
+                          <div style={{ padding: isMobile ? '1rem' : '1.25rem' }}>
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', 
+                              gap: isMobile ? '0.75rem' : '1rem',
+                              marginBottom: '1.25rem'
+                            }}>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Inward Date & Time</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {new Date(vehicle.created_at).toLocaleDateString('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                  {' '}{new Date(vehicle.created_at).toLocaleTimeString('en-IN', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Owner Name</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {vehicle.customer?.name || 'N/A'}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Model</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {vehicle.make} {vehicle.model}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Car Number</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {vehicle.registration_number}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Location</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {((vehicle as any).location_id && locationNames.get((vehicle as any).location_id)) || (vehicle as any).location_id || 'N/A'}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Vehicle Type</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                  {(vehicle.vehicle_type && vehicleTypeNames.get(vehicle.vehicle_type)) || vehicle.vehicle_type || 'N/A'}
+                                </div>
+                              </div>
+                              {(vehicle as any).assigned_manager_id && (
+                                <div>
+                                  <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Manager</div>
+                                  <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                    {managerNames.get((vehicle as any).assigned_manager_id) || (vehicle as any).assigned_manager_id || 'N/A'}
+                                  </div>
+                                </div>
+                              )}
+                              {(vehicle as any).estimated_completion_date && (
+                                <div>
+                                  <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem' }}>Expected Date</div>
+                                  <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                                    {new Date((vehicle as any).estimated_completion_date).toLocaleDateString('en-IN', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric'
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Product Details - EXACT SAME AS DASHBOARD */}
+                            <div style={{ 
+                              marginBottom: '1.25rem',
+                              padding: '1rem',
+                              backgroundColor: '#f9fafb',
+                              borderRadius: '0.5rem'
+                            }}>
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.375rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Product Details</span>
+                                {(() => {
+                                  const accessories = (vehicle as any).accessories_requested
+                                  if (!accessories) return null
+                                  
+                                  try {
+                                    const products = JSON.parse(accessories)
+                                    if (Array.isArray(products) && products.length > 0) {
+                                      const completedIndices = productCompletions.get(vehicle.id) || new Set<number>()
+                                      const completedCount = completedIndices.size
+                                      if (userRole === 'installer' && completedCount > 0) {
+                                        return (
+                                          <span style={{ fontSize: '0.7rem', color: '#059669', fontWeight: '600' }}>
+                                            {completedCount}/{products.length} Completed
+                                          </span>
+                                        )
+                                      }
+                                    }
+                                  } catch {}
+                                  return null
+                                })()}
+                              </div>
+                              <div style={{ fontSize: '0.875rem', color: '#111827' }}>
+                                {(() => {
+                                  const accessories = (vehicle as any).accessories_requested
+                                  if (!accessories) return (vehicle as any).issues_reported || 'No details provided'
+                                  
+                                  try {
+                                    const products = JSON.parse(accessories)
+                                    if (Array.isArray(products) && products.length > 0) {
+                                      const completedIndices = productCompletions.get(vehicle.id) || new Set<number>()
+                                      const isInstaller = userRole === 'installer'
+                                      const isUpdating = updatingProductStatus.has(vehicle.id)
+                                      
+                                      const hexToRgba = (hex: string, opacity: number) => {
+                                        const r = parseInt(hex.slice(1, 3), 16)
+                                        const g = parseInt(hex.slice(3, 5), 16)
+                                        const b = parseInt(hex.slice(5, 7), 16)
+                                        return `rgba(${r}, ${g}, ${b}, ${opacity})`
+                                      }
+                                      
+                                      return (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                                          <thead>
+                                            <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                              {isInstaller && (
+                                                <th style={{ padding: '0.5rem', textAlign: 'center', color: '#6b7280', fontWeight: '600', fontSize: '0.75rem', width: '2.5rem' }}>
+                                                  ✓
+                                                </th>
+                                              )}
+                                              <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', fontWeight: '600', fontSize: '0.75rem' }}>
+                                                Product
+                                              </th>
+                                              <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', fontWeight: '600', fontSize: '0.75rem' }}>
+                                                Brand
+                                              </th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {products.map((product: any, idx: number) => {
+                                              const isCompleted = completedIndices.has(idx)
+                                              const canToggle = isInstaller && !isUpdating && 
+                                                (vehicle.status === 'pending' || vehicle.status === 'in_progress' || vehicle.status === 'under_installation')
+                                              const departmentColor = departmentColors.get(product.department) || '#3b82f6'
+                                              const bgColor = hexToRgba(departmentColor, 0.08)
+                                              const hoverBgColor = hexToRgba(departmentColor, 0.15)
+                                              
+                                              return (
+                                                <tr 
+                                                  key={idx}
+                                                  style={{ 
+                                                    borderBottom: idx === products.length - 1 ? 'none' : '1px solid #e5e7eb',
+                                                    backgroundColor: bgColor,
+                                                    opacity: isCompleted ? 0.6 : 1,
+                                                    transition: 'all 0.2s'
+                                                  }}
+                                                  onMouseEnter={(e) => {
+                                                    if (!isCompleted) {
+                                                      e.currentTarget.style.backgroundColor = hoverBgColor
+                                                    }
+                                                  }}
+                                                  onMouseLeave={(e) => {
+                                                    if (!isCompleted) {
+                                                      e.currentTarget.style.backgroundColor = bgColor
+                                                    }
+                                                  }}
+                                                >
+                                                  {isInstaller && (
+                                                    <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={isCompleted}
+                                                        onChange={() => handleProductToggle(vehicle.id, idx, products.length)}
+                                                        disabled={!canToggle}
+                                                        style={{
+                                                          width: '1.125rem',
+                                                          height: '1.125rem',
+                                                          cursor: canToggle ? 'pointer' : 'not-allowed',
+                                                          accentColor: departmentColor
+                                                        }}
+                                                      />
+                                                    </td>
+                                                  )}
+                                                  <td style={{ 
+                                                    padding: '0.75rem 0.5rem',
+                                                    borderLeft: `4px solid ${departmentColor}`,
+                                                    fontWeight: isCompleted ? 'normal' : '600',
+                                                    textDecoration: isCompleted ? 'line-through' : 'none',
+                                                    color: isCompleted ? '#9ca3af' : '#111827'
+                                                  }}>
+                                                    {product.product || 'Product'}
+                                                  </td>
+                                                  <td style={{ 
+                                                    padding: '0.75rem 0.5rem',
+                                                    color: isCompleted ? '#9ca3af' : '#111827',
+                                                    fontWeight: isCompleted ? 'normal' : '500'
+                                                  }}>
+                                                    {product.brand || '-'}
+                                                  </td>
+                                                </tr>
+                                              )
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      )
+                                    }
+                                    return accessories
+                                  } catch {
+                                    return accessories
+                                  }
+                                })()}
+                              </div>
+                            </div>
+
+                            {/* Status Update Dropdown - EXACT SAME AS DASHBOARD */}
+                            {(() => {
+                              const vehicleStatus = vehicle.status?.toLowerCase().trim() || ''
+                              const isFinalStatus = ['delivered', 'complete_and_delivered'].includes(vehicleStatus)
+                              const isCompleted = vehicleStatus === 'completed'
+                              const isInstallationComplete = vehicleStatus === 'installation_complete' || vehicleStatus === 'installation complete'
+                              
+                              if (isFinalStatus || isCompleted || isInstallationComplete) {
+                                return (
+                                  <div style={{
+                                    padding: '1rem',
+                                    backgroundColor: '#f3f4f6',
+                                    borderRadius: '0.5rem',
+                                    border: '1px solid #e5e7eb',
+                                    marginBottom: '0.5rem',
+                                    textAlign: 'center'
+                                  }}>
+                                    <div style={{ 
+                                      fontSize: '0.875rem', 
+                                      fontWeight: '600', 
+                                      color: '#6b7280',
+                                      marginBottom: '0.25rem'
+                                    }}>
+                                      Status {isFinalStatus ? '(Final - No Updates)' : isInstallationComplete ? '(Moved to Accounts - No Updates)' : '(No Updates in Recent Vehicles)'}
+                                    </div>
+                                    <div style={{
+                                      fontSize: '0.875rem',
+                                      color: '#374151',
+                                      fontStyle: 'italic'
+                                    }}>
+                                      {vehicle.status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                                    </div>
+                                  </div>
+                                )
+                              }
+                              
+                              return (
+                                <div style={{
+                                  padding: '1rem',
+                                  backgroundColor: '#f9fafb',
+                                  borderRadius: '0.5rem',
+                                  border: '1px solid #e5e7eb',
+                                  marginBottom: '0.5rem'
+                                }}>
+                                  <div style={{ 
+                                    fontSize: '0.875rem', 
+                                    fontWeight: '600', 
+                                    color: '#111827',
+                                    marginBottom: '0.5rem'
+                                  }}>
+                                    Update Status
+                                  </div>
+                                  <select
+                                    value={vehicle.status || 'pending'}
+                                    onChange={(e) => {
+                                      e.stopPropagation()
+                                      const newStatus = e.target.value
+                                      if (newStatus !== vehicle.status) {
+                                        handleQuickStatusUpdate(vehicle, newStatus)
+                                      }
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '0.75rem',
+                                      fontSize: '0.875rem',
+                                      border: '1px solid #d1d5db',
+                                      borderRadius: '0.5rem',
+                                      backgroundColor: 'white',
+                                      color: '#111827',
+                                      cursor: 'pointer',
+                                      outline: 'none'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.borderColor = '#3b82f6'
+                                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.borderColor = '#d1d5db'
+                                      e.currentTarget.style.boxShadow = 'none'
+                                    }}
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="under_installation">Under Installation</option>
+                                    <option value="installation_complete">Installation Complete</option>
+                                  </select>
+                                </div>
+                              )
+                            })()}
+
+                            {/* View Details Button - EXACT SAME */}
+                            {(() => {
+                              const vehicleStatus = vehicle.status?.toLowerCase().trim() || ''
+                              const isNonFunctional = ['completed', 'delivered', 'complete_and_delivered', 'installation_complete', 'installation complete'].includes(vehicleStatus)
+                              
+                              if (isNonFunctional) {
+                                return null
+                              }
+                              
+                              return (
+                                <button 
+                                  onClick={() => handleVehicleClick(vehicle)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.75rem 1.5rem',
+                                    backgroundColor: '#2563eb',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '0.5rem',
+                                    fontSize: '0.875rem',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                    marginTop: userRole === 'installer' ? '0.5rem' : '0'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#1d4ed8'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#2563eb'
+                                  }}
+                                >
+                                  View Full Details
+                                </button>
+                              )
+                            })()}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Pagination Controls - Simplified with Next button */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '2rem',
+                    padding: '1.5rem',
+                    backgroundColor: 'white',
+                    borderRadius: '0.75rem',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    {currentPage > 1 && (
+                      <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: '#2563eb',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '0.5rem',
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = '#1d4ed8'
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = '#2563eb'
+                        }}
+                      >
+                        <ChevronLeft style={{ width: '1.25rem', height: '1.25rem' }} />
+                        Previous
+                      </button>
+                    )}
+
+                    <div style={{
+                      fontSize: '1.125rem',
+                      color: '#1e293b',
+                      fontWeight: '600',
+                      minWidth: '120px',
+                      textAlign: 'center'
+                    }}>
+                      Page {currentPage} of {totalPages}
+                    </div>
+
+                    {currentPage < totalPages && (
+                      <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: '#2563eb',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '0.5rem',
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = '#1d4ed8'
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = '#2563eb'
+                        }}
+                      >
+                        Next
+                        <ChevronRight style={{ width: '1.25rem', height: '1.25rem' }} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+            
+            {!isFullScreen && (
+              <>
+                {/* Header with Full Screen Button for Installers */}
+                {userRole === 'installer' && (
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'flex-end', 
+                    marginBottom: '1rem',
+                    padding: '0 0.5rem'
+                  }}>
+                    <button
+                      onClick={() => setIsFullScreen(true)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '0.5rem',
+                        fontSize: '0.875rem',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = '#1d4ed8'
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = '#2563eb'
+                      }}
+                    >
+                      <Maximize2 style={{ width: '1rem', height: '1rem' }} />
+                      Full Screen View
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(380px, 1fr))', 
+              gap: isMobile ? '1rem' : '1.5rem' 
+            }}>
+              {recentVehicles
               .filter(vehicle => {
                 const status = vehicle.status?.toLowerCase().trim() || ''
                 
@@ -1501,6 +2169,7 @@ export default function DashboardPageClient() {
             </div>
             )}
           </div>
+          </>
         )}
 
         {activeTab === 'invoices' && (

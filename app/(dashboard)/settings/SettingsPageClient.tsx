@@ -3898,7 +3898,7 @@ export default function SettingsPageClient() {
                       value={companySettings.email}
                       onChange={(e) => (userRole !== 'installer' && userRole !== 'coordinator' && userRole !== 'manager') && setCompanySettings({ ...companySettings, email: e.target.value })}
                       disabled={userRole === 'installer' || userRole === 'coordinator' || userRole === 'manager'}
-                      placeholder="info@company.com"
+                      placeholder="info@zoravo.in"
                       style={{
                         width: '100%',
                         padding: '0.75rem',

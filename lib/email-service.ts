@@ -38,12 +38,17 @@ interface WelcomeEmailData {
 export async function sendWelcomeEmail(data: WelcomeEmailData) {
   try {
     const resendClient = getResendClient()
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'social@sunkool.in'
+    // Use configured from email or fallback
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@zoravo.in'
     
-    // Ensure supportEmail is set in data
+    if (!fromEmail) {
+      throw new Error('RESEND_FROM_EMAIL is not configured. Please set it in your environment variables.')
+    }
+    
+    // Ensure supportEmail is set in data - use info@zoravo.in as default
     const emailData = {
       ...data,
-      supportEmail: data.supportEmail || 'social@sunkool.in'
+      supportEmail: data.supportEmail || 'info@zoravo.in'
     }
 
     const emailHtml = generateWelcomeEmailHTML(emailData)
@@ -67,7 +72,7 @@ function generateWelcomeEmailHTML(data: WelcomeEmailData): string {
     ? `₹${data.pricingAmount.toLocaleString('en-IN')}/year`
     : `$${data.pricingAmount}/year`
   
-  const supportEmail = data.supportEmail || 'social@sunkool.in'
+  const supportEmail = data.supportEmail || 'info@zoravo.in'
 
   return `
 <!DOCTYPE html>
@@ -249,7 +254,7 @@ function generateWelcomeEmailHTML(data: WelcomeEmailData): string {
             <div class="section">
                 <div class="section-content">
                     We're thrilled to welcome <strong>${data.tenantName}</strong> to ZORAVO OMS! 
-                    Your workspace is ready at <strong>${data.workspaceUrl}.zoravo.com</strong>.
+                    Your workspace is ready at <strong>${data.workspaceUrl}.zoravo.in</strong>.
                 </div>
             </div>
 
@@ -349,7 +354,7 @@ function generateWelcomeEmailHTML(data: WelcomeEmailData): string {
 export async function sendDailyReportEmail(data: DailyReportEmailData) {
   try {
     const resendClient = getResendClient()
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'social@sunkool.in'
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@zoravo.in'
     
     const emailHtml = generateDailyReportEmailHTML(data)
 
@@ -548,7 +553,7 @@ function generateDailyReportEmailHTML(data: DailyReportEmailData): string {
 
         <div class="footer">
             <p>This is an automated daily report from ZORAVO OMS.</p>
-            <p>For support, contact: ${process.env.RESEND_FROM_EMAIL || 'social@sunkool.in'}</p>
+            <p>For support, contact: ${process.env.RESEND_FROM_EMAIL || 'info@zoravo.in'}</p>
             <p style="margin-top: 15px; font-size: 11px; color: #9ca3af;">
                 Generated on ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
             </p>

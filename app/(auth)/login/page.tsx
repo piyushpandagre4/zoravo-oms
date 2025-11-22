@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 export const dynamic = 'force-dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Car, AlertCircle, Building2, User, Key } from 'lucide-react'
+import { Car, AlertCircle, Building2, User, Key, CheckCircle } from 'lucide-react'
 import Logo from '@/components/Logo'
 
 export default function LoginPage() {
@@ -29,13 +29,20 @@ function LoginContent() {
   const supabase = createClient()
   const redirectTo = searchParams.get('redirectTo') || '/dashboard'
   const tenantParam = searchParams.get('tenant')
+  const passwordReset = searchParams.get('passwordReset')
 
   useEffect(() => {
     // Pre-fill tenant code from query parameter
     if (tenantParam) {
       setTenantCode(tenantParam.toUpperCase())
     }
-  }, [tenantParam])
+    
+    // Show success message if password was reset
+    if (passwordReset === 'success') {
+      // Clear the query parameter from URL
+      router.replace('/login', { scroll: false })
+    }
+  }, [tenantParam, passwordReset, router])
 
   const handleTenantLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -364,7 +371,7 @@ function LoginContent() {
                     {tenant.name}
                   </div>
                   <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                    {tenant.workspace_url}.zoravo.com
+                    {tenant.workspace_url}.zoravo.in
                   </div>
                 </button>
               ))}
@@ -519,6 +526,25 @@ function LoginContent() {
             </p>
           </div>
 
+          {/* Success Message */}
+          {passwordReset === 'success' && (
+            <div style={{
+              backgroundColor: '#f0fdf4',
+              border: '1px solid #86efac',
+              color: '#166534',
+              fontSize: '0.875rem',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '1.5rem'
+            }}>
+              <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+              Password reset successful! You can now sign in with your new password.
+            </div>
+          )}
+
           {/* Error Message */}
           {error && (
             <div style={{
@@ -616,16 +642,35 @@ function LoginContent() {
               />
             </div>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '0.875rem',
-                fontWeight: '500',
-                color: '#374151',
-                marginBottom: '0.5rem'
-              }}>
-                Password
-              </label>
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#374151'
+                }}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => router.push('/forgot-password')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontSize: '0.875rem',
+                    cursor: 'pointer',
+                    padding: '0',
+                    textDecoration: 'none',
+                    fontWeight: '500'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+                  onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+                >
+                  Forgot password?
+                </button>
+              </div>
               <input
                 type="password"
                 value={password}

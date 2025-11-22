@@ -225,7 +225,7 @@ export default function UsersManagementPage() {
                       </div>
                     )}
                     <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                      {user.workspace_url}.zoravo.com
+                      {user.workspace_url}.zoravo.in
                     </div>
                   </td>
                   <td style={{ padding: '1rem' }}>

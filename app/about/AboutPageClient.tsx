@@ -46,7 +46,7 @@ export default function AboutPageClient() {
           </p>
           
           <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', flexWrap: 'wrap' }}>
-            <a href="mailto:piyush@sunkool.in" style={{ textDecoration: 'none' }}>
+            <a href="mailto:info@zoravo.in" style={{ textDecoration: 'none' }}>
               <button style={{ 
                 padding: '0.875rem 2rem', 
                 backgroundColor: '#fbbf24', 
@@ -71,7 +71,7 @@ export default function AboutPageClient() {
                 🚀 Start Free Trial
               </button>
             </a>
-            <a href="mailto:piyush@sunkool.in" style={{ textDecoration: 'none' }}>
+            <a href="mailto:info@zoravo.in" style={{ textDecoration: 'none' }}>
               <button style={{ 
                 padding: '0.875rem 2rem', 
                 backgroundColor: 'transparent', 
@@ -275,7 +275,7 @@ export default function AboutPageClient() {
             Start your 24-hour free trial today. No credit card required. Experience the power of Zoravo OMS risk-free.
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href="mailto:piyush@sunkool.in" style={{ textDecoration: 'none' }}>
+            <a href="mailto:info@zoravo.in" style={{ textDecoration: 'none' }}>
               <button style={{ 
                 padding: '1rem 2.5rem', 
                 backgroundColor: '#fbbf24', 
@@ -300,7 +300,7 @@ export default function AboutPageClient() {
                 🎯 Start Free Trial Now
               </button>
             </a>
-            <a href="mailto:piyush@sunkool.in" style={{ textDecoration: 'none' }}>
+            <a href="mailto:info@zoravo.in" style={{ textDecoration: 'none' }}>
               <button style={{ 
                 padding: '1rem 2.5rem', 
                 backgroundColor: 'transparent', 
@@ -354,7 +354,7 @@ export default function AboutPageClient() {
           <DetailRow label="Application" value="Zoravo OMS" />
           <DetailRow label="Industry" value="Automotive Service & Accessories Management" />
           <DetailRow label="Developed By" value="Raghav Sukhadia" />
-          <DetailRow label="Support" value={<a href="mailto:piyush@sunkool.in" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>piyush@sunkool.in</a>} />
+          <DetailRow label="Support" value={<a href="mailto:info@zoravo.in" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>info@zoravo.in</a>} />
           <DetailRow label="Location" value="Sunkool Solutions, Nagpur, India" />
           <DetailRow label="Connect" value={
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>

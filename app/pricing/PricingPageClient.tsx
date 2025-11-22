@@ -1,11 +1,72 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import Logo from '@/components/Logo'
 import { CheckCircle, Zap, Users, BarChart3, Shield, HeadphonesIcon, ArrowRight, Clock } from 'lucide-react'
 
+interface SubscriptionPlan {
+  plan_name: string
+  plan_display_name: string
+  amount: number
+  currency: string
+  billing_cycle: 'monthly' | 'annual' | 'quarterly'
+  trial_days: number
+  is_active: boolean
+  features?: string[]
+}
+
 export default function PricingPageClient() {
   const router = useRouter()
+  const [plan, setPlan] = useState<SubscriptionPlan | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchSubscriptionPlan()
+  }, [])
+
+  const fetchSubscriptionPlan = async () => {
+    try {
+      const response = await fetch('/api/public/subscription-plans')
+      const data = await response.json()
+      
+      if (data.plans && data.plans.length > 0) {
+        // Get the annual plan or the first active plan
+        const annualPlan = data.plans.find((p: SubscriptionPlan) => 
+          p.billing_cycle === 'annual' && p.is_active
+        ) || data.plans.find((p: SubscriptionPlan) => p.is_active) || data.plans[0]
+        
+        setPlan(annualPlan)
+      } else {
+        // Default fallback plan
+        setPlan({
+          plan_name: 'annual',
+          plan_display_name: 'Annual Plan',
+          amount: 12000,
+          currency: 'INR',
+          billing_cycle: 'annual',
+          trial_days: 24,
+          is_active: true,
+          features: []
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching subscription plan:', error)
+      // Default fallback plan
+      setPlan({
+        plan_name: 'annual',
+        plan_display_name: 'Annual Plan',
+        amount: 12000,
+        currency: 'INR',
+        billing_cycle: 'annual',
+        trial_days: 24,
+        is_active: true,
+        features: []
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div style={{ padding: '2rem', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
@@ -124,56 +185,71 @@ export default function PricingPageClient() {
 
           {/* Pricing Content */}
           <div style={{ padding: '3rem' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'center',
-              gap: '0.5rem',
-              marginBottom: '1rem'
-            }}>
-              <span style={{
-                fontSize: '3.5rem',
-                fontWeight: 900,
-                color: '#111827'
-              }}>
-                ₹12,000
-              </span>
-              <span style={{
-                fontSize: '1.25rem',
-                color: '#6b7280',
-                fontWeight: '500'
-              }}>
-                /year
-              </span>
-            </div>
-
-            <div style={{
-              textAlign: 'center',
-              marginBottom: '2rem'
-            }}>
-              <p style={{
-                fontSize: '1rem',
-                color: '#6b7280',
-                margin: '0 0 0.5rem 0'
-              }}>
-                Annual Subscription Plan
-              </p>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.5rem 1rem',
-                backgroundColor: '#eff6ff',
-                borderRadius: '9999px',
-                fontSize: '0.875rem',
-                color: '#1e40af',
-                fontWeight: '600',
-                marginTop: '0.5rem'
-              }}>
-                <Clock style={{ width: '1rem', height: '1rem' }} />
-                24 Days Free Trial
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <p style={{ color: '#6b7280' }}>Loading pricing information...</p>
               </div>
-            </div>
+            ) : plan ? (
+              <>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  marginBottom: '1rem'
+                }}>
+                  <span style={{
+                    fontSize: '3.5rem',
+                    fontWeight: 900,
+                    color: '#111827'
+                  }}>
+                    {plan.currency === 'INR' ? '₹' : plan.currency === 'USD' ? '$' : ''}
+                    {plan.amount.toLocaleString('en-IN')}
+                  </span>
+                  <span style={{
+                    fontSize: '1.25rem',
+                    color: '#6b7280',
+                    fontWeight: '500'
+                  }}>
+                    /{plan.billing_cycle === 'annual' ? 'year' : plan.billing_cycle === 'monthly' ? 'month' : 'quarter'}
+                  </span>
+                </div>
+
+                <div style={{
+                  textAlign: 'center',
+                  marginBottom: '2rem'
+                }}>
+                  <p style={{
+                    fontSize: '1rem',
+                    color: '#6b7280',
+                    margin: '0 0 0.5rem 0'
+                  }}>
+                    {plan.plan_display_name || `${plan.billing_cycle.charAt(0).toUpperCase() + plan.billing_cycle.slice(1)} Subscription Plan`}
+                  </p>
+                  {plan.trial_days > 0 && (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.5rem 1rem',
+                      backgroundColor: '#eff6ff',
+                      borderRadius: '9999px',
+                      fontSize: '0.875rem',
+                      color: '#1e40af',
+                      fontWeight: '600',
+                      marginTop: '0.5rem'
+                    }}>
+                      <Clock style={{ width: '1rem', height: '1rem' }} />
+                      {plan.trial_days} {plan.trial_days === 1 ? 'Day' : 'Days'} Free Trial
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <p style={{ color: '#dc2626' }}>Unable to load pricing information. Please try again later.</p>
+              </div>
+            )}
 
             {/* Features List */}
             <div style={{
@@ -305,7 +381,7 @@ export default function PricingPageClient() {
               color: '#6b7280',
               lineHeight: '1.8'
             }}>
-              <li>Start your 24-day free trial</li>
+              <li>Start your {plan?.trial_days || 24}-day free trial</li>
               <li>Submit payment proof in Settings</li>
               <li>Get activated within 24 hours</li>
               <li>Enjoy full access to all features</li>
@@ -339,7 +415,7 @@ export default function PricingPageClient() {
               Need assistance? Our support team is here to help you.
             </p>
             <a
-              href="mailto:piyush@sunkool.in?subject=Pricing Inquiry&body=Hello,%0D%0A%0D%0AI have a question about Zoravo OMS pricing.%0D%0A%0D%0AThank you."
+              href="mailto:info@zoravo.in?subject=Pricing Inquiry&body=Hello,%0D%0A%0D%0AI have a question about Zoravo OMS pricing.%0D%0A%0D%0AThank you."
               style={{
                 color: '#2563eb',
                 textDecoration: 'none',
@@ -375,7 +451,7 @@ export default function PricingPageClient() {
               lineHeight: '1.8',
               margin: 0
             }}>
-              Start with a 24-day free trial. No credit card required. Explore all features risk-free before committing.
+              Start with a {plan?.trial_days || 24}-day free trial. No credit card required. Explore all features risk-free before committing.
             </p>
           </div>
         </div>
@@ -418,7 +494,7 @@ export default function PricingPageClient() {
               },
               {
                 q: 'What happens after the free trial?',
-                a: 'After your 24-day free trial, you can continue using Zoravo OMS by submitting payment proof. Your account will be activated within 24 hours of payment verification.'
+                a: `After your ${plan?.trial_days || 24}-day free trial, you can continue using Zoravo OMS by submitting payment proof. Your account will be activated within 24 hours of payment verification.`
               },
               {
                 q: 'Do you offer refunds?',
