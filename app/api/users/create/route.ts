@@ -7,7 +7,17 @@ export async function POST(request: Request) {
     console.log('User creation request received')
 
     // Get request body
-    const body = await request.json()
+    let body
+    try {
+      body = await request.json()
+      console.log('Request body parsed:', { ...body, password: body.password ? '[REDACTED]' : undefined })
+    } catch (parseError: any) {
+      console.error('Failed to parse request body:', parseError)
+      return NextResponse.json({ 
+        error: 'Invalid request body',
+        details: parseError.message 
+      }, { status: 400 })
+    }
     const { email, password, name, phone, role, department, departments, specialization, tenant_id } = body
 
     // Validate required fields
@@ -66,79 +76,250 @@ export async function POST(request: Request) {
     // Wait a bit to ensure auth user is fully created
     await new Promise(resolve => setTimeout(resolve, 300))
 
-    // Prepare profile data with all fields including departments
+    // Prepare profile data - only use columns that exist in the profiles table
+    // The profiles table schema has: id, email, name, role, created_at, updated_at
+    // Note: phone, departments, and specialization are NOT in profiles table
+    // They should be stored in auth.users user_metadata or a separate table
     const profileData: any = {
       id: authData.user.id,
       email,
       name,
-      role,
-      phone
-    }
-    
-    // Add department information to initial profile creation
-    if (departments && Array.isArray(departments) && departments.length > 0) {
-      // Try setting a JSON/array column named `departments`; fallback to comma string in `department`
-      profileData.departments = departments
-      // Also set department as comma-separated string for backward compatibility
-      profileData.department = departments.join(', ')
-    } else if (department) {
-      profileData.department = department
-    }
-    
-    if (specialization) {
-      profileData.specialization = specialization
+      role
+      // Note: phone is stored in auth.users user_metadata, not in profiles table
+      // Note: departments and specialization are not in profiles table schema
     }
 
-    // Create profile manually using admin client with all fields
-    const { error: profileCreateError } = await adminSupabase
+    // Wait a bit more to ensure trigger has finished (if it exists)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Check if profile already exists (might have been created by trigger)
+    const { data: existingProfile } = await adminSupabase
       .from('profiles')
-      .insert(profileData)
+      .select('id, role, name, email')
+      .eq('id', authData.user.id)
+      .maybeSingle()
 
-    if (profileCreateError) {
-      console.error('Error creating profile:', profileCreateError)
-      // Don't delete the auth user - profile creation might fail but user exists
-      console.warn('Profile creation failed but auth user was created:', authData.user.id)
+    if (existingProfile) {
+      console.log('Profile already exists (likely created by trigger), updating with correct role:', role)
+      // Profile exists, just update it with correct role and data
+      // Only update columns that exist in the profiles table
+      const updateData: any = {
+        role: role, // CRITICAL: Ensure role is always set correctly
+        name: name,
+        email: email
+        // Note: departments and specialization are not in profiles table schema
+      }
       
-      // Try to update profile if creation failed (might already exist)
-      if (departments && Array.isArray(departments) && departments.length > 0) {
-        const updateData: any = {
-          departments: departments,
-          department: departments.join(', ')
+      const { error: updateError } = await adminSupabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', authData.user.id)
+      
+      if (updateError) {
+        console.error('Error updating existing profile:', updateError)
+        // Try updating with only core fields (role, name, email) - these definitely exist
+        const coreUpdateData = {
+          role: role,
+          name: name,
+          email: email
         }
-        if (specialization) updateData.specialization = specialization
         
-        const { error: updateError } = await adminSupabase
+        const { error: coreUpdateError } = await adminSupabase
           .from('profiles')
-          .update(updateData)
+          .update(coreUpdateData)
           .eq('id', authData.user.id)
         
-        if (updateError) {
-          console.error('Error updating profile with departments:', updateError)
+        if (coreUpdateError) {
+          console.error('Error updating profile with core fields:', coreUpdateError)
+          // Even if update fails, check if role is already correct
+          if (existingProfile.role === role) {
+            console.log('Profile role is already correct, continuing despite update error')
+          } else {
+            return NextResponse.json({ 
+              error: 'Failed to update profile role',
+              details: coreUpdateError?.message || 'Unknown database error',
+              code: coreUpdateError?.code,
+              hint: coreUpdateError?.hint
+            }, { status: 500 })
+          }
         } else {
-          console.log('Profile updated with departments successfully')
+          console.log('Profile updated successfully with core fields, role:', role)
+          // Note: departments and specialization are not in profiles table
+          // They should be stored elsewhere (e.g., user_metadata or separate table)
         }
+      } else {
+        console.log('Profile updated successfully with role:', role)
       }
     } else {
-      console.log('Profile created successfully with all fields')
+      // Profile doesn't exist, create it
+      console.log('Profile does not exist, creating new profile with role:', role)
+      const { error: profileCreateError } = await adminSupabase
+        .from('profiles')
+        .insert(profileData)
+
+      if (profileCreateError) {
+        console.error('Error creating profile:', profileCreateError)
+        // Check if profile was created by trigger in the meantime
+        await new Promise(resolve => setTimeout(resolve, 300))
+        const { data: checkProfile } = await adminSupabase
+          .from('profiles')
+          .select('id, role')
+          .eq('id', authData.user.id)
+          .maybeSingle()
+        
+        if (checkProfile) {
+          console.log('Profile was created by trigger, updating role to:', role)
+          // Profile exists now, update it
+          const { error: updateError } = await adminSupabase
+            .from('profiles')
+            .update({ role: role, name: name, email: email })
+            .eq('id', authData.user.id)
+          
+          if (updateError) {
+            console.error('Error updating trigger-created profile:', updateError)
+            // If role is already correct, continue
+            if (checkProfile.role === role) {
+              console.log('Profile role is already correct')
+            } else {
+              return NextResponse.json({ 
+                error: 'Failed to update profile role',
+                details: updateError.message
+              }, { status: 500 })
+            }
+          }
+        } else {
+          return NextResponse.json({ 
+            error: 'Failed to create profile',
+            details: profileCreateError.message
+          }, { status: 500 })
+        }
+      } else {
+        console.log('Profile created successfully with role:', role)
+      }
+    }
+    
+    // Final verification: ensure profile exists with correct role
+    // This is critical - we need to verify before proceeding
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const { data: finalProfile, error: verifyError } = await adminSupabase
+      .from('profiles')
+      .select('id, role, name, email')
+      .eq('id', authData.user.id)
+      .single()
+    
+    if (verifyError || !finalProfile) {
+      console.error('Profile verification failed:', verifyError)
+      return NextResponse.json({ 
+        error: 'Profile verification failed',
+        details: verifyError?.message || 'Profile was not found after creation/update'
+      }, { status: 500 })
+    }
+    
+    // Verify role is correct
+    if (finalProfile.role !== role) {
+      console.warn(`Profile role mismatch: expected ${role}, got ${finalProfile.role}. Attempting to fix...`)
+      // Try one more time to fix the role
+      const { error: finalUpdateError } = await adminSupabase
+        .from('profiles')
+        .update({ role: role })
+        .eq('id', authData.user.id)
+      
+      if (finalUpdateError) {
+        console.error('Could not fix profile role:', finalUpdateError)
+        return NextResponse.json({ 
+          error: 'Profile role is incorrect and could not be fixed',
+          details: finalUpdateError.message,
+          currentRole: finalProfile.role,
+          expectedRole: role
+        }, { status: 500 })
+      } else {
+        console.log('Profile role fixed successfully')
+      }
+    } else {
+      console.log('Profile verified successfully with correct role:', role)
     }
 
     // Create tenant_users relationship if tenant_id is provided
+    // CRITICAL: This must succeed for the user to appear in tenant-specific queries
     if (tenant_id) {
-      const { error: tenantUserError } = await adminSupabase
+      console.log('🔗 Creating tenant_users relationship:', {
+        tenant_id,
+        user_id: authData.user.id,
+        role
+      })
+      
+      // Check if relationship already exists
+      const { data: existingTenantUser } = await adminSupabase
         .from('tenant_users')
-        .insert({
-          tenant_id: tenant_id,
-          user_id: authData.user.id,
-          role: role
-        })
+        .select('id, role, tenant_id')
+        .eq('tenant_id', tenant_id)
+        .eq('user_id', authData.user.id)
+        .maybeSingle()
 
-      if (tenantUserError) {
-        console.error('Error creating tenant_users relationship:', tenantUserError)
-        // Don't fail the request - user is created, just not linked to tenant
-        console.warn('Tenant user relationship creation failed but user was created:', authData.user.id)
+      if (existingTenantUser) {
+        console.log('⚠️ Tenant user relationship already exists, updating role')
+        // Update existing relationship to ensure role is correct
+        const { error: updateTenantUserError } = await adminSupabase
+          .from('tenant_users')
+          .update({ role: role })
+          .eq('id', existingTenantUser.id)
+
+        if (updateTenantUserError) {
+          console.error('❌ Error updating tenant_users relationship:', updateTenantUserError)
+          return NextResponse.json({ 
+            error: 'Failed to update tenant relationship',
+            details: updateTenantUserError.message 
+          }, { status: 500 })
+        } else {
+          console.log('✅ Tenant user relationship updated successfully with role:', role)
+        }
       } else {
-        console.log('Tenant user relationship created successfully')
+        // Create new relationship
+        const { error: tenantUserError } = await adminSupabase
+          .from('tenant_users')
+          .insert({
+            tenant_id: tenant_id,
+            user_id: authData.user.id,
+            role: role // CRITICAL: Use the role from request, not default
+          })
+
+        if (tenantUserError) {
+          console.error('❌ Error creating tenant_users relationship:', tenantUserError)
+          // This is critical for tenant-specific queries - return error
+          return NextResponse.json({ 
+            error: 'Failed to create tenant relationship',
+            details: tenantUserError.message 
+          }, { status: 500 })
+        } else {
+          console.log('✅ Tenant user relationship created successfully with role:', role)
+        }
       }
+      
+      // Verify the relationship was created correctly
+      await new Promise(resolve => setTimeout(resolve, 200))
+      const { data: verifyTenantUser, error: verifyError } = await adminSupabase
+        .from('tenant_users')
+        .select('id, role, tenant_id')
+        .eq('tenant_id', tenant_id)
+        .eq('user_id', authData.user.id)
+        .eq('role', role)
+        .single()
+      
+      if (verifyError || !verifyTenantUser) {
+        console.error('❌ Verification failed: tenant_users relationship not found after creation', verifyError)
+        return NextResponse.json({ 
+          error: 'Tenant relationship verification failed',
+          details: verifyError?.message || 'Relationship was not found after creation'
+        }, { status: 500 })
+      } else {
+        console.log('✅ Verified tenant_users relationship exists:', verifyTenantUser)
+      }
+    } else {
+      console.warn('⚠️ No tenant_id provided - user will not be linked to any tenant')
+      return NextResponse.json({ 
+        error: 'Tenant ID is required',
+        details: 'Cannot create user without tenant_id. Please ensure you are logged in to a tenant workspace.'
+      }, { status: 400 })
     }
 
     return NextResponse.json({
@@ -152,6 +333,13 @@ export async function POST(request: Request) {
     })
   } catch (error: any) {
     console.error('Error in user creation:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const errorMessage = error?.message || error?.toString() || 'Unknown error occurred'
+    const errorDetails = error?.details || error?.hint || error?.code || null
+    
+    return NextResponse.json({ 
+      error: errorMessage,
+      details: errorDetails,
+      fullError: process.env.NODE_ENV === 'development' ? String(error) : undefined
+    }, { status: 500 })
   }
 }

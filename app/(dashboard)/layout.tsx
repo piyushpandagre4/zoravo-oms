@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import Sidebar from '@/components/sidebar'
 import Topbar from '@/components/topbar'
 import SubscriptionGuard from '@/components/SubscriptionGuard'
@@ -16,9 +16,10 @@ interface DashboardLayoutProps {
 function DashboardLayoutContent({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [userRole, setUserRole] = useState<UserRole>('admin')
-  const [userName, setUserName] = useState('Demo Admin')
-  const [userEmail, setUserEmail] = useState('raghav@sunkool.in')
+  const [userName, setUserName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const [loading, setLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const supabase = createClient()
@@ -78,25 +79,46 @@ function DashboardLayoutContent({ children }: DashboardLayoutProps) {
     try {
       setLoading(true)
       
-      // Get user from auth
-      const { data: { user } } = await supabase.auth.getUser()
+      // Get user from auth - check session expiration
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
       
-      if (user) {
-        // Get profile data
-        const profile = await checkUserRole()
-        
-        if (profile) {
-          setUserRole(profile.role)
-          setUserName(profile.name || user.user_metadata?.name || user.email || 'User')
-          setUserEmail(user.email || '')
-        } else {
-          // Fallback to auth user metadata
-          setUserName(user.user_metadata?.name || user.email || 'User')
-          setUserEmail(user.email || '')
+      // If no user or auth error (expired session), redirect to login
+      if (!user || authError) {
+        console.log('Session expired or no user found, redirecting to login')
+        // Clear any session storage
+        if (typeof window !== 'undefined') {
+          sessionStorage.clear()
         }
+        // Sign out to clear any stale cookies
+        await supabase.auth.signOut()
+        // Redirect to login page
+        router.push('/login')
+        return
+      }
+      
+      // Get profile data
+      const profile = await checkUserRole()
+      
+      if (profile) {
+        setUserRole(profile.role)
+        setUserName(profile.name || user.user_metadata?.name || user.email || 'User')
+        setUserEmail(user.email || '')
+      } else {
+        // Fallback to auth user metadata
+        setUserName(user.user_metadata?.name || user.email || 'User')
+        setUserEmail(user.email || '')
       }
     } catch (error) {
       console.error('Error loading user data:', error)
+      // On error, redirect to login if we can't verify the user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.clear()
+        }
+        await supabase.auth.signOut()
+        router.push('/login')
+      }
     } finally {
       setLoading(false)
     }

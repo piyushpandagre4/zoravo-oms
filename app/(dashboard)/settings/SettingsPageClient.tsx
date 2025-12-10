@@ -234,11 +234,11 @@ export default function SettingsPageClient() {
           .single()
         
         if (!error && profile) {
-          // If user is tenant admin, set role to 'admin' regardless of profile role
-          const effectiveRole = isTenantAdmin ? 'admin' : profile.role
-          setUserRole(effectiveRole as any)
+          // Use profile role - don't override based on tenant_users role
+        // The profile.role is the source of truth for user permissions
+        setUserRole(profile.role as any)
           
-          if (effectiveRole === 'installer' || effectiveRole === 'coordinator' || effectiveRole === 'manager' || effectiveRole === 'accountant') {
+          if (profile.role === 'installer' || profile.role === 'coordinator' || profile.role === 'manager' || profile.role === 'accountant') {
             setActiveTab('company')
           }
           setProfileSettings(prev => ({
@@ -584,6 +584,8 @@ export default function SettingsPageClient() {
       let tenantId = getCurrentTenantId()
       const isSuper = isSuperAdmin()
       
+      console.log('🔍 Fetching managers...', { tenantId, isSuper })
+      
       // If tenant_id is missing, try to fetch it from database
       if (!isSuper && !tenantId) {
         const { data: { user } } = await supabase.auth.getUser()
@@ -597,45 +599,156 @@ export default function SettingsPageClient() {
           if (tenantUser?.tenant_id) {
             tenantId = tenantUser.tenant_id
             sessionStorage.setItem('current_tenant_id', tenantId)
+            console.log('✅ Fetched tenant_id from database:', tenantId)
           }
         }
       }
       
       if (!isSuper && tenantId) {
-        // Get managers for this tenant
+        // Get managers for this tenant - query both tenant_users and profiles
+        console.log('📋 Querying tenant_users for managers with tenant_id:', tenantId)
         const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('user_id, role, tenant_id')
           .eq('tenant_id', tenantId)
           .eq('role', 'manager')
         
-        if (tenantUsersError) throw tenantUsersError
+        if (tenantUsersError) {
+          console.error('❌ Error fetching tenant_users for managers:', tenantUsersError)
+          throw tenantUsersError
+        }
+        
+        console.log('✅ Found tenant_users with manager role:', tenantUsers?.length || 0)
+        console.log('📋 tenant_users details:', tenantUsers?.map(tu => ({
+          user_id: tu.user_id,
+          role: tu.role,
+          tenant_id: tu.tenant_id
+        })))
         
         if (tenantUsers && tenantUsers.length > 0) {
           const userIds = tenantUsers.map(tu => tu.user_id)
+          console.log('📋 User IDs to fetch from profiles:', userIds)
           
+          // Query profiles for these user IDs
           const { data, error } = await supabase
             .from('profiles')
             .select('*')
             .in('id', userIds)
+            .eq('role', 'manager') // Double-check role in profiles table
             .order('created_at', { ascending: false })
-          if (error) throw error
+          
+          if (error) {
+            console.error('❌ Error fetching profiles for managers:', error)
+            throw error
+          }
+          
+          console.log('✅ Found managers in profiles:', data?.length || 0)
+          console.log('📋 Manager details:', data?.map(m => ({
+            id: m.id,
+            name: m.name,
+            email: m.email,
+            role: m.role,
+            created_at: m.created_at
+          })))
+          
+          // Also check if there are any profiles with manager role that aren't in tenant_users
+          const { data: allManagers } = await supabase
+            .from('profiles')
+            .select('id, name, email, role, created_at')
+            .eq('role', 'manager')
+            .order('created_at', { ascending: false })
+          
+          if (allManagers) {
+            const missingManagers = allManagers.filter(m => !userIds.includes(m.id))
+            if (missingManagers.length > 0) {
+              console.warn('⚠️ Found managers in profiles that are NOT in tenant_users:', missingManagers)
+              console.warn('⚠️ These managers might not be linked to the tenant:', missingManagers.map(m => ({
+                id: m.id,
+                name: m.name,
+                email: m.email
+              })))
+              
+              // Automatically link missing managers to the current tenant
+              console.log('🔗 Attempting to link missing managers to tenant:', tenantId)
+              let linkedCount = 0
+              
+              for (const manager of missingManagers) {
+                try {
+                  const response = await fetch('/api/users/link-to-tenant', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      user_id: manager.id,
+                      tenant_id: tenantId,
+                      role: 'manager'
+                    })
+                  })
+                  
+                  const result = await response.json()
+                  
+                  if (response.ok && result.success) {
+                    console.log(`✅ Successfully linked manager ${manager.id} (${manager.email}) to tenant`)
+                    linkedCount++
+                    // Add to userIds so it will be included in the next query
+                    userIds.push(manager.id)
+                  } else {
+                    console.error(`❌ Failed to link manager ${manager.id} (${manager.email}):`, result.error || result.details)
+                    console.error('Full error response:', result)
+                    if (result.hint) {
+                      console.error('Database hint:', result.hint)
+                    }
+                    if (result.code) {
+                      console.error('Error code:', result.code)
+                    }
+                  }
+                } catch (err: any) {
+                  console.error(`❌ Error linking manager ${manager.id} (${manager.email}):`, err)
+                }
+              }
+              
+              // Re-fetch managers after linking if any were linked
+              if (linkedCount > 0 && userIds.length > 0) {
+                console.log(`🔄 Re-fetching managers after linking ${linkedCount} manager(s)`)
+                const { data: updatedData, error: updatedError } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .in('id', userIds)
+                  .eq('role', 'manager')
+                  .order('created_at', { ascending: false })
+                
+                if (!updatedError && updatedData) {
+                  console.log('✅ Updated managers list after linking:', updatedData.length)
+                  setManagers(updatedData)
+                  return // Exit early since we've updated the list
+                }
+              }
+            }
+          }
+          
           setManagers(data || [])
         } else {
+          console.log('⚠️ No managers found in tenant_users for tenant:', tenantId)
           setManagers([])
         }
       } else {
         // Super admin sees all managers
+        console.log('📋 Fetching all managers (super admin)')
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('role', 'manager')
           .order('created_at', { ascending: false })
-        if (error) throw error
+        if (error) {
+          console.error('❌ Error fetching all managers:', error)
+          throw error
+        }
+        console.log('✅ Found all managers (super admin):', data?.length || 0)
         setManagers(data || [])
       }
     } catch (error) {
-      console.error('Error fetching managers:', error)
+      console.error('❌ Error fetching managers:', error)
       setManagers([])
     }
   }
@@ -1697,11 +1810,18 @@ export default function SettingsPageClient() {
     }
   }
 
-  const handleModalSuccess = () => {
-    fetchUsers()
-    fetchManagers()
-    fetchInstallers()
-    fetchAccountants()
+  const handleModalSuccess = async () => {
+    // Wait a bit to ensure database operations are complete
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Refresh all user lists
+    await Promise.all([
+      fetchUsers(),
+      fetchManagers(),
+      fetchInstallers(),
+      fetchAccountants()
+    ])
+    
     setShowUserModal(false)
     setEditingItem(null)
   }

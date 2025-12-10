@@ -1,8 +1,108 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+
+// Helper function to check if a route is protected (dashboard route)
+function isProtectedRoute(pathname: string): boolean {
+  // Protected routes: dashboard, admin, settings, and other app routes
+  // Exclude: login, api, static files, public routes
+  const protectedPaths = ['/dashboard', '/admin', '/settings', '/vehicles', '/invoices', '/trackers', '/requirements', '/installer', '/accountant']
+  const excludedPaths = ['/login', '/api', '/_next', '/favicon.ico', '/reset-password']
+  
+  // Check if it's a static file
+  if (pathname.match(/\.(svg|png|jpg|jpeg|gif|webp|ico|css|js)$/)) {
+    return false
+  }
+  
+  // Check if it's an excluded path
+  if (excludedPaths.some(path => pathname.startsWith(path))) {
+    return false
+  }
+  
+  // Check if it's a protected path
+  return protectedPaths.some(path => pathname.startsWith(path)) || pathname === '/'
+}
 
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl.clone()
   const hostname = request.headers.get('host') || ''
+  
+  // Create response object for Supabase auth refresh
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
+
+  // Handle Supabase auth cookie refresh
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              request.cookies.set(name, value)
+              response.cookies.set(name, value, {
+                ...options,
+                httpOnly: options?.httpOnly ?? true,
+                secure: options?.secure ?? process.env.NODE_ENV === 'production',
+                sameSite: options?.sameSite ?? 'lax',
+                path: options?.path ?? '/',
+              })
+            })
+          },
+        },
+      }
+    )
+
+    // Refresh the session if needed
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser()
+
+    // If user exists, refresh the session to update tokens
+    if (user) {
+      const { error: sessionError } = await supabase.auth.getSession()
+      // If session refresh fails, user session is expired
+      if (sessionError) {
+        // Only redirect dashboard routes (protected routes)
+        if (isProtectedRoute(url.pathname)) {
+          // Clear auth cookies
+          response.cookies.delete('sb-access-token')
+          response.cookies.delete('sb-refresh-token')
+          // Redirect to login
+          const loginUrl = url.clone()
+          loginUrl.pathname = '/login'
+          return NextResponse.redirect(loginUrl)
+        }
+      }
+    } else if (authError) {
+      // No user or auth error - redirect to login for protected routes only
+      if (isProtectedRoute(url.pathname)) {
+        // Clear auth cookies
+        response.cookies.delete('sb-access-token')
+        response.cookies.delete('sb-refresh-token')
+        // Redirect to login
+        const loginUrl = url.clone()
+        loginUrl.pathname = '/login'
+        return NextResponse.redirect(loginUrl)
+      }
+    }
+  } catch (error) {
+    // If auth refresh fails, check if it's a protected route
+    console.warn('Auth refresh error in middleware:', error)
+    // For protected routes, redirect to login on auth errors
+    if (isProtectedRoute(url.pathname)) {
+      const loginUrl = url.clone()
+      loginUrl.pathname = '/login'
+      return NextResponse.redirect(loginUrl)
+    }
+  }
   
   // Extract subdomain (workspace URL) from hostname
   // Examples:
@@ -40,13 +140,12 @@ export async function middleware(request: NextRequest) {
     url.pathname.startsWith('/favicon.ico') ||
     url.pathname.match(/\.(svg|png|jpg|jpeg|gif|webp|ico)$/)
   ) {
-    return NextResponse.next()
+    return response
   }
   
   // If workspace URL is detected from subdomain, add it to headers and query params
   if (workspaceUrl && workspaceUrl !== 'www' && workspaceUrl !== 'app') {
     // Add workspace URL to request headers for use in pages
-    const response = NextResponse.next()
     response.headers.set('x-workspace-url', workspaceUrl)
     
     // If not already in query params, add it
@@ -54,11 +153,9 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set('workspace', workspaceUrl)
       return NextResponse.redirect(url)
     }
-    
-    return response
   }
   
-  return NextResponse.next()
+  return response
 }
 
 export const config = {

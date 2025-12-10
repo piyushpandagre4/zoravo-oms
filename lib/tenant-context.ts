@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/client'
-import { createClient as createServerClient } from '@/lib/supabase/server'
 
 // Client-side: Get current tenant ID from session storage
 export function getCurrentTenantId(): string | null {
@@ -21,7 +20,13 @@ export function isSuperAdmin(): boolean {
 
 // Server-side: Get tenant ID from user's tenant_users relationship
 export async function getTenantIdForUser(userId: string): Promise<string | null> {
-  const supabase = createServerClient()
+  // Dynamic import to avoid importing server code in client components
+  // Using string literal to prevent static analysis
+  const serverModule = await import(
+    /* webpackIgnore: true */ 
+    '@/lib/supabase/server'
+  )
+  const supabase = serverModule.createClient()
   
   const { data, error } = await supabase
     .from('tenant_users')
@@ -39,7 +44,13 @@ export async function getTenantIdForUser(userId: string): Promise<string | null>
 // Server-side: Check if user is super admin
 // Returns true if user is in super_admins table OR is admin in RS Car Accessories tenant
 export async function checkIsSuperAdmin(userId: string): Promise<boolean> {
-  const supabase = createServerClient()
+  // Dynamic import to avoid importing server code in client components
+  // Using string literal to prevent static analysis
+  const serverModule = await import(
+    /* webpackIgnore: true */ 
+    '@/lib/supabase/server'
+  )
+  const supabase = serverModule.createClient()
   const RS_CAR_ACCESSORIES_TENANT_ID = '00000000-0000-0000-0000-000000000001'
   
   // Check if user is in super_admins table
@@ -67,7 +78,13 @@ export async function checkIsSuperAdmin(userId: string): Promise<boolean> {
 
 // Server-side: Get user's tenants
 export async function getUserTenants(userId: string) {
-  const supabase = createServerClient()
+  // Dynamic import to avoid importing server code in client components
+  // Using string literal to prevent static analysis
+  const serverModule = await import(
+    /* webpackIgnore: true */ 
+    '@/lib/supabase/server'
+  )
+  const supabase = serverModule.createClient()
   
   const { data, error } = await supabase
     .from('tenant_users')
@@ -109,8 +126,13 @@ export async function validateTenantAccess(
     return true
   }
 
-  // Check if user belongs to tenant
-  const supabase = createServerClient()
+  // Dynamic import to avoid importing server code in client components
+  // Using string literal to prevent static analysis
+  const serverModule = await import(
+    /* webpackIgnore: true */ 
+    '@/lib/supabase/server'
+  )
+  const supabase = serverModule.createClient()
   const { data, error } = await supabase
     .from('tenant_users')
     .select('id')

@@ -624,40 +624,26 @@ class DatabaseService {
     try {
       const tenantId = this.getTenantId()
       const isSuper = this.checkIsSuperAdmin()
-      
-      // Calculate 24 hours ago timestamp
-      const twentyFourHoursAgo = new Date()
-      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
-      const twentyFourHoursAgoISO = twentyFourHoursAgo.toISOString()
 
       // First try to get from vehicle_inward (more complete data)
       let inwardQuery = this.supabase
         .from('vehicle_inward')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(limit * 2) // Get more to account for filtering
+        // Use a high limit to fetch all vehicles, filtering will be done in the component
+        .limit(limit > 100 ? limit : 1000) // If limit is high, use it; otherwise use 1000 as max
       
       inwardQuery = this.addTenantFilter(inwardQuery, tenantId, isSuper)
       const { data: inwardData, error: inwardError } = await inwardQuery
 
       if (!inwardError && inwardData && inwardData.length > 0) {
-        // Filter out vehicles that have been "installation_complete" for more than 24 hours
-        const filteredData = inwardData.filter((inward: any) => {
-          const status = inward.status?.toLowerCase().trim() || ''
-          
-          // If status is "installation_complete", check if updated_at is more than 24 hours ago
-          if (status === 'installation_complete' || status === 'installation complete') {
-            const updatedAt = new Date(inward.updated_at || inward.created_at)
-            // Exclude if updated more than 24 hours ago
-            if (updatedAt < twentyFourHoursAgo) {
-              return false
-            }
-          }
-          return true
-        })
+        // Don't filter here - let the component handle filtering based on status
+        // This allows showing all vehicles from "Pending" to "Completed"
+        const filteredData = inwardData
 
         // Transform to include customer and vehicle info from the flat structure
-        return filteredData.slice(0, limit).map((inward: any) => ({
+        // Return all filtered data, not limited by the original limit parameter
+        return filteredData.map((inward: any) => ({
           id: inward.id,
           registration_number: inward.registration_number,
           make: inward.make || 'Unknown',
@@ -731,13 +717,16 @@ class DatabaseService {
         .from('vehicle_inward')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(limit * 3)
+        // Use a high limit to fetch all vehicles, filtering will be done in the component
+        .limit(limit > 100 ? limit : 1000) // If limit is high, use it; otherwise use 1000 as max
       
       inwardQuery = this.addTenantFilter(inwardQuery, tenantId, isSuper)
       const { data: allInwardEntriesRaw } = await inwardQuery
 
-      // Filter out only final/delivered statuses - include all active entries (pending, in_progress, etc.)
-      const finalStatuses = ['completed', 'complete_and_delivered', 'delivered', 'delivered_final', 'delivered (final)']
+      // Filter out only final/delivered statuses - include all entries from pending to completed
+      // Similar to vehicles: show all from pending to completed, exclude only delivered
+      // Note: "completed" status should be included (not filtered out)
+      const finalStatuses = ['delivered', 'complete_and_delivered', 'delivered_final', 'delivered (final)']
       const allInwardEntries = (allInwardEntriesRaw || []).filter((entry: any) => {
         const status = (entry.status || '').toLowerCase().trim()
         return !finalStatuses.some(finalStatus => status === finalStatus.toLowerCase().trim())
@@ -839,10 +828,11 @@ class DatabaseService {
         }
       }
 
-      // 4) Merge previews + real invoices, sort by created/updated date, and return top N
+      // 4) Merge previews + real invoices, sort by created/updated date, and return all
+      // Return all merged invoices, not limited by the original limit parameter
       const merged = [...previewInvoices, ...realInvoices]
       merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      return merged.slice(0, limit)
+      return merged // Return all, not limited
     } catch (error) {
       console.error('Error fetching recent invoices:', error)
       throw error

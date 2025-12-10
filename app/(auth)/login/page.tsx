@@ -470,7 +470,7 @@ function LoginContent() {
             }}
           >
             <Building2 style={{ width: '1rem', height: '1rem' }} />
-            Tenant Login
+            Login
           </button>
           <button
             onClick={() => setLoginMode('super')}
@@ -493,7 +493,7 @@ function LoginContent() {
             }}
           >
             <Key style={{ width: '1rem', height: '1rem' }} />
-            Super Admin
+            Admin
           </button>
         </div>
 
@@ -512,7 +512,7 @@ function LoginContent() {
               margin: '0 0 0.5rem 0',
               color: '#1f2937'
             }}>
-              {loginMode === 'tenant' ? 'Sign In to Your Workspace' : 'Super Admin Login'}
+              {loginMode === 'tenant' ? 'Sign In to Your Workspace' : 'Admin Login'}
             </h2>
             <p style={{
               textAlign: 'center',

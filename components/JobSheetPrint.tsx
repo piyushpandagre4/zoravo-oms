@@ -289,7 +289,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
               <style>
                 @page {
                   size: A4;
-                  margin: 10mm;
+                  margin: 8mm;
                 }
                 * {
                   margin: 0;
@@ -298,22 +298,22 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 }
                 body {
                   font-family: 'Arial', sans-serif;
-                  font-size: 9pt;
-                  line-height: 1.3;
+                  font-size: 8pt;
+                  line-height: 1.2;
                   color: #000;
                   background: white;
                 }
                 .header {
                   border-bottom: 2px solid #2563eb;
-                  padding-bottom: 8px;
-                  margin-bottom: 10px;
+                  padding-bottom: 4px;
+                  margin-bottom: 6px;
                 }
                 .header-top {
                   display: flex;
                   align-items: center;
                   justify-content: space-between;
-                  margin-bottom: 12px;
-                  padding-bottom: 10px;
+                  margin-bottom: 6px;
+                  padding-bottom: 6px;
                   border-bottom: 1px solid #e2e8f0;
                 }
                 .logo-section {
@@ -354,15 +354,15 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   padding: 0 15px;
                 }
                 .company-name-main {
-                  font-size: 20pt;
+                  font-size: 16pt;
                   font-weight: 700;
                   color: #1e293b;
-                  margin-bottom: 4px;
-                  letter-spacing: 1px;
+                  margin-bottom: 2px;
+                  letter-spacing: 0.5px;
                   text-transform: uppercase;
                 }
                 .company-location-main {
-                  font-size: 10pt;
+                  font-size: 8pt;
                   color: #64748b;
                   font-weight: 500;
                 }
@@ -370,50 +370,54 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   display: flex;
                   justify-content: space-between;
                   align-items: center;
-                  margin-top: 8px;
+                  margin-top: 4px;
                 }
                 .header h1 {
                   color: #2563eb;
-                  font-size: 18pt;
-                  margin-bottom: 2px;
+                  font-size: 14pt;
+                  margin-bottom: 1px;
                   font-weight: bold;
                 }
                 .header .subtitle {
                   color: #64748b;
-                  font-size: 8pt;
+                  font-size: 7pt;
                 }
                 .section {
-                  margin-bottom: 10px;
+                  margin-bottom: 6px;
                   page-break-inside: avoid;
                 }
                 .section-title {
                   background: #f1f5f9;
-                  padding: 4px 8px;
+                  padding: 3px 6px;
                   font-weight: bold;
-                  font-size: 10pt;
+                  font-size: 9pt;
                   color: #1e293b;
                   border-left: 3px solid #2563eb;
-                  margin-bottom: 6px;
+                  margin-bottom: 4px;
                 }
                 .info-grid {
                   display: grid;
                   grid-template-columns: 1fr 1fr;
-                  gap: 8px;
-                  margin-bottom: 8px;
+                  gap: 4px;
+                  margin-bottom: 4px;
+                }
+                .info-grid[style*="grid-template-columns: 1fr 1fr 1fr"] {
+                  grid-template-columns: 1fr 1fr 1fr !important;
+                  gap: 4px !important;
                 }
                 .info-item {
-                  margin-bottom: 4px;
+                  margin-bottom: 2px;
                 }
                 .info-label {
                   font-weight: bold;
                   color: #475569;
-                  font-size: 8pt;
-                  margin-bottom: 2px;
+                  font-size: 7pt;
+                  margin-bottom: 1px;
                 }
                 .info-value {
                   color: #0f172a;
-                  font-size: 9pt;
-                  padding: 2px 0;
+                  font-size: 8pt;
+                  padding: 1px 0;
                   border-bottom: 1px dotted #cbd5e1;
                 }
                 .full-width {
@@ -422,22 +426,29 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 .products-table {
                   width: 100%;
                   border-collapse: collapse;
-                  margin-top: 6px;
-                  font-size: 8pt;
+                  margin-top: 4px;
+                  font-size: 9pt;
+                  table-layout: fixed;
                 }
                 .products-table th {
                   background: #f1f5f9;
-                  padding: 4px 6px;
+                  padding: 4px 4px;
                   text-align: left;
                   font-weight: bold;
                   border: 1px solid #cbd5e1;
                   font-size: 8pt;
+                  font-weight: 700;
+                  word-wrap: break-word;
+                  overflow: hidden;
                 }
                 .products-table td {
-                  padding: 3px 6px;
+                  padding: 4px 4px;
                   border: 1px solid #cbd5e1;
                   font-size: 8pt;
+                  font-weight: 600;
                   vertical-align: middle;
+                  word-wrap: break-word;
+                  overflow: hidden;
                 }
                 .status-checkbox {
                   width: 12px;
@@ -453,28 +464,28 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   gap: 4px;
                 }
                 .status-text {
-                  font-size: 7pt;
+                  font-size: 6pt;
                   color: #64748b;
                 }
                 .footer {
-                  margin-top: 12px;
-                  padding-top: 8px;
+                  margin-top: 6px;
+                  padding-top: 4px;
                   border-top: 1px solid #e2e8f0;
-                  font-size: 7pt;
+                  font-size: 6pt;
                   color: #64748b;
                   text-align: center;
                 }
                 .signature-section {
-                  margin-top: 15px;
+                  margin-top: 8px;
                   display: grid;
                   grid-template-columns: 1fr 1fr;
-                  gap: 30px;
+                  gap: 20px;
                 }
                 .signature-box {
                   border-top: 2px solid #000;
-                  padding-top: 6px;
+                  padding-top: 4px;
                   text-align: center;
-                  font-size: 9pt;
+                  font-size: 8pt;
                 }
                 .signature-label {
                   font-weight: bold;
@@ -482,11 +493,11 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 }
                 .notes-box {
                   background: #f8fafc;
-                  padding: 6px;
+                  padding: 4px;
                   border-radius: 3px;
-                  font-size: 8pt;
+                  font-size: 7pt;
                   border: 1px solid #e2e8f0;
-                  margin-top: 4px;
+                  margin-top: 2px;
                 }
                 @media print {
                   body {
@@ -713,7 +724,6 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
               </div>
               <div className="company-header-section">
                 <div className="company-name-main">{companyName}</div>
-                {companyLocation && <div className="company-location-main">{companyLocation}</div>}
               </div>
               <div style={{ width: '120px', flexShrink: 0 }}></div>
             </div>
@@ -735,10 +745,11 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
             </div>
           </div>
 
-          {/* Vehicle Information */}
+          {/* Combined: Vehicle, Customer & Assignment Information */}
           <div className="section">
-            <div className="section-title">VEHICLE INFORMATION</div>
-            <div className="info-grid">
+            <div className="section-title">VEHICLE, CUSTOMER & ASSIGNMENT INFORMATION</div>
+            <div className="info-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+              {/* Vehicle Info */}
               <div className="info-item">
                 <div className="info-label">Registration Number</div>
                 <div className="info-value">{vehicle.registration_number || 'N/A'}</div>
@@ -748,104 +759,27 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 <div className="info-value">{vehicle.make || 'N/A'} {vehicle.model || ''}</div>
               </div>
               <div className="info-item">
-                <div className="info-label">Year</div>
-                <div className="info-value">{vehicle.year || 'N/A'}</div>
+                <div className="info-label">Year / Color</div>
+                <div className="info-value">{vehicle.year || 'N/A'} / {vehicle.color || 'N/A'}</div>
               </div>
-              <div className="info-item">
-                <div className="info-label">Color</div>
-                <div className="info-value">{vehicle.color || 'N/A'}</div>
-              </div>
-              <div className="info-item">
-                <div className="info-label">Vehicle Type</div>
-                <div className="info-value">{vehicleTypeName || vehicle.vehicle_type || 'N/A'}</div>
-              </div>
-              <div className="info-item">
-                <div className="info-label">Odometer Reading</div>
-                <div className="info-value">{vehicle.odometer_reading ? `${vehicle.odometer_reading} km` : 'N/A'}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Customer Information */}
-          <div className="section">
-            <div className="section-title">CUSTOMER INFORMATION</div>
-            <div className="info-grid">
+              
+              {/* Customer Info */}
               <div className="info-item">
                 <div className="info-label">Customer Name</div>
                 <div className="info-value">{vehicle.customer_name || 'N/A'}</div>
               </div>
+              <div className="info-item">
+                <div className="info-label">Phone</div>
+                <div className="info-value">{vehicle.customer_phone || 'N/A'}</div>
+              </div>
               {vehicle.customer_email && (
                 <div className="info-item">
-                  <div className="info-label">Email Address</div>
-                  <div className="info-value">{vehicle.customer_email}</div>
+                  <div className="info-label">Email</div>
+                  <div className="info-value" style={{ fontSize: '8pt' }}>{vehicle.customer_email}</div>
                 </div>
               )}
-              {(vehicle.customer_address || vehicle.customer_city) && (
-                <div className="info-item full-width">
-                  <div className="info-label">Address</div>
-                  <div className="info-value">
-                    {[
-                      vehicle.customer_address,
-                      vehicle.customer_city,
-                      vehicle.customer_state,
-                      vehicle.customer_pincode
-                    ].filter(Boolean).join(', ')}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Work Details */}
-          <div className="section">
-            <div className="section-title">WORK DETAILS</div>
-            {vehicle.issues_reported && (
-              <div style={{ marginBottom: '8px' }}>
-                <div className="info-label">Issues Reported</div>
-                <div className="notes-box">
-                  {vehicle.issues_reported}
-                </div>
-              </div>
-            )}
-            
-            {products.length > 0 && (
-              <div style={{ marginTop: '8px' }}>
-                <div className="info-label" style={{ marginBottom: '4px' }}>Accessories/Products to Install</div>
-                <table className="products-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '5%' }}>#</th>
-                      <th style={{ width: '30%' }}>Product Name</th>
-                      <th style={{ width: '25%' }}>Brand</th>
-                      <th style={{ width: '20%' }}>Department</th>
-                      <th style={{ width: '20%', textAlign: 'left' }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((product: any, index: number) => (
-                      <tr key={index}>
-                        <td>{index + 1}</td>
-                        <td>{product.product || 'N/A'}</td>
-                        <td>{product.brand || 'N/A'}</td>
-                        <td>{product.department || 'N/A'}</td>
-                        <td>
-                          <div className="status-cell">
-                            <div className="status-checkbox"></div>
-                            <span className="status-text">Completed</span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Assignment & Status */}
-          <div className="section">
-            <div className="section-title">ASSIGNMENT & STATUS</div>
-            <div className="info-grid">
+              
+              {/* Assignment Info */}
               <div className="info-item">
                 <div className="info-label">Assigned Manager</div>
                 <div className="info-value">{managerName}</div>
@@ -867,7 +801,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 </div>
               </div>
               <div className="info-item">
-                <div className="info-label">Current Status</div>
+                <div className="info-label">Status</div>
                 <div className="info-value" style={{ textTransform: 'capitalize', fontWeight: 'bold' }}>
                   {vehicle.status?.replace('_', ' ') || 'Pending'}
                 </div>
@@ -879,7 +813,80 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 </div>
               )}
             </div>
+            {(vehicle.customer_address || vehicle.customer_city) && (
+              <div className="info-item" style={{ marginTop: '4px' }}>
+                <div className="info-label">Customer Address</div>
+                <div className="info-value" style={{ fontSize: '8pt' }}>
+                  {[
+                    vehicle.customer_address,
+                    vehicle.customer_city,
+                    vehicle.customer_state,
+                    vehicle.customer_pincode
+                  ].filter(Boolean).join(', ')}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Work Details */}
+          <div className="section">
+            <div className="section-title">WORK DETAILS</div>
+            {vehicle.issues_reported && (
+              <div style={{ marginBottom: '4px' }}>
+                <div className="info-label">Issues Reported</div>
+                <div className="notes-box">
+                  {vehicle.issues_reported}
+                </div>
+              </div>
+            )}
+            
+            <div style={{ marginTop: '4px' }}>
+              <div className="info-label" style={{ marginBottom: '4px', fontSize: '9pt', fontWeight: 'bold' }}>Accessories/Products to Install</div>
+              <table className="products-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '4%' }}>#</th>
+                    <th style={{ width: '38%' }}>Product Name</th>
+                    <th style={{ width: '20%' }}>Brand</th>
+                    <th style={{ width: '20%' }}>Department</th>
+                    <th style={{ width: '18%', textAlign: 'left' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((product: any, index: number) => (
+                    <tr key={index}>
+                      <td style={{ fontWeight: '700', textAlign: 'center' }}>{index + 1}</td>
+                      <td style={{ fontWeight: '700' }}>{product.product || 'N/A'}</td>
+                      <td style={{ fontWeight: '700' }}>{product.brand || 'N/A'}</td>
+                      <td style={{ fontWeight: '700' }}>{product.department || 'N/A'}</td>
+                      <td>
+                        <div className="status-cell">
+                          <div className="status-checkbox"></div>
+                          <span className="status-text" style={{ fontSize: '7pt', fontWeight: '600' }}>Completed</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Add 3 empty rows */}
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <tr key={`empty-${index}`}>
+                      <td style={{ fontWeight: '700', textAlign: 'center' }}>{products.length + index + 1}</td>
+                      <td style={{ fontWeight: '700' }}>&nbsp;</td>
+                      <td style={{ fontWeight: '700' }}>&nbsp;</td>
+                      <td style={{ fontWeight: '700' }}>&nbsp;</td>
+                      <td>
+                        <div className="status-cell">
+                          <div className="status-checkbox"></div>
+                          <span className="status-text" style={{ fontSize: '7pt', fontWeight: '600' }}>Pending</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
 
           {/* Signature Section */}
           <div className="signature-section">
