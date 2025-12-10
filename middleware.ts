@@ -6,20 +6,27 @@ function isProtectedRoute(pathname: string): boolean {
   // Protected routes: dashboard, admin, settings, and other app routes
   // Exclude: login, api, static files, public routes
   const protectedPaths = ['/dashboard', '/admin', '/settings', '/vehicles', '/invoices', '/trackers', '/requirements', '/installer', '/accountant']
-  const excludedPaths = ['/login', '/api', '/_next', '/favicon.ico', '/reset-password']
+  const excludedPaths = ['/login', '/api', '/_next', '/favicon.ico', '/reset-password', '/', '/about', '/pricing', '/forgot-password']
   
   // Check if it's a static file
   if (pathname.match(/\.(svg|png|jpg|jpeg|gif|webp|ico|css|js)$/)) {
     return false
   }
   
-  // Check if it's an excluded path
-  if (excludedPaths.some(path => pathname.startsWith(path))) {
+  // Check if it's an excluded path (public routes)
+  // For exact matches like '/', check exact equality
+  // For paths like '/login', check if pathname starts with the path
+  if (excludedPaths.some(path => {
+    if (path === '/') {
+      return pathname === '/'
+    }
+    return pathname === path || pathname.startsWith(path + '/')
+  })) {
     return false
   }
   
   // Check if it's a protected path
-  return protectedPaths.some(path => pathname.startsWith(path)) || pathname === '/'
+  return protectedPaths.some(path => pathname.startsWith(path))
 }
 
 export async function middleware(request: NextRequest) {
