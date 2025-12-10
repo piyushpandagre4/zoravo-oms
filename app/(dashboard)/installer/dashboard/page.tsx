@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Calendar, CheckCircle, Clock, AlertCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, CheckCircle, Clock, AlertCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface VehicleInward {
@@ -29,14 +29,31 @@ export default function InstallerDashboard() {
   const [loading, setLoading] = useState(true)
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
   const router = useRouter()
   const supabase = createClient()
   
   const vehiclesPerPage = 6
+  const AUTO_REFRESH_INTERVAL = 30000 // 30 seconds for installer dashboard
 
   useEffect(() => {
     loadInstallerWork()
   }, [])
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefreshEnabled) return
+
+    const interval = setInterval(() => {
+      if (!isRefreshing && !loading) {
+        loadInstallerWork(true) // Silent refresh
+      }
+    }, AUTO_REFRESH_INTERVAL)
+
+    return () => clearInterval(interval)
+  }, [autoRefreshEnabled, isRefreshing, loading])
 
   // Keyboard navigation for full-screen view
   useEffect(() => {
@@ -68,9 +85,13 @@ export default function InstallerDashboard() {
     }
   }, [recentVehicles.length, isFullScreen, currentPage, vehiclesPerPage])
 
-  const loadInstallerWork = async () => {
+  const loadInstallerWork = async (silent: boolean = false) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      } else {
+        setIsRefreshing(true)
+      }
       
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
@@ -86,7 +107,19 @@ export default function InstallerDashboard() {
       if (!profile) return
 
       // Fetch vehicles assigned to this installer
-      // Increased limit to support full-screen pagination view
+      // Show all vehicles from "Pending" to "Completed" (same logic as main dashboard)
+      // Define all statuses from Pending to Completed (inclusive)
+      const validStatuses = [
+        'pending',
+        'in_progress',
+        'in progress',
+        'under_installation',
+        'under installation',
+        'installation_complete',
+        'installation complete',
+        'completed'
+      ]
+      
       const { data: inwardData, error } = await supabase
         .from('vehicle_inward')
         .select(`
@@ -101,9 +134,9 @@ export default function InstallerDashboard() {
             )
           )
         `)
-        .in('status', ['in_progress', 'pending', 'under_installation', 'under installation'])
+        .in('status', validStatuses)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(1000) // Fetch all vehicles (high limit to get all)
 
       if (error) throw error
 
@@ -125,11 +158,17 @@ export default function InstallerDashboard() {
       }))
 
       setRecentVehicles(transformedData)
+      setLastRefreshTime(new Date())
     } catch (error) {
       console.error('Error loading installer work:', error)
     } finally {
       setLoading(false)
+      setIsRefreshing(false)
     }
+  }
+
+  const handleManualRefresh = () => {
+    loadInstallerWork(false)
   }
 
   const updateStatus = async (inwardId: string, newStatus: string) => {
@@ -602,6 +641,12 @@ export default function InstallerDashboard() {
 
   return (
     <>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       <FullScreenView />
       {!isFullScreen && (
         <div style={{ backgroundColor: '#f8fafc', minHeight: '100vh', padding: '2rem' }}>

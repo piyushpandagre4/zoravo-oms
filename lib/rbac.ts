@@ -1,5 +1,4 @@
 import { notFound } from 'next/navigation'
-import { createClient as createServerClient } from '@/lib/supabase/server'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 
 export type UserRole = 'admin' | 'manager' | 'coordinator' | 'installer' | 'accountant'
@@ -150,7 +149,13 @@ export function canExportData(userRole: UserRole): boolean {
 
 // Server-side role assertion helper
 export async function assertRole(allowedRoles: UserRole[]): Promise<UserProfile> {
-  const supabase = createServerClient()
+  // Dynamic import to avoid importing server code in client components
+  // Using string literal to prevent static analysis
+  const serverModule = await import(
+    /* webpackIgnore: true */ 
+    '@/lib/supabase/server'
+  )
+  const supabase = serverModule.createClient()
   
   const {
     data: { user },

@@ -8,6 +8,7 @@ import VehicleDetailsModal from './components/VehicleDetailsModal'
 import JobSheetPrint from '@/components/JobSheetPrint'
 import { notificationWorkflow } from '@/lib/notification-workflow'
 import { checkUserRole, type UserRole } from '@/lib/rbac'
+import * as XLSX from 'xlsx'
 import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
 
 export default function VehiclesPageClient() {
@@ -181,6 +182,150 @@ export default function VehiclesPageClient() {
     }
   }
 
+  const handleExportVehicles = () => {
+    try {
+      // Determine which vehicles to export
+      const vehiclesToExport = selectedVehicles.length > 0
+        ? vehicles.filter(v => selectedVehicles.includes(v.id))
+        : filteredVehicles
+
+      if (vehiclesToExport.length === 0) {
+        alert('No vehicles to export. Please select vehicles or ensure there are vehicles in the current view.')
+        return
+      }
+
+      // Prepare data for Excel export
+      const exportData = vehiclesToExport.map((vehicle, index) => {
+        // Parse accessories if it's a JSON string
+        let accessoriesList = vehicle.accessories || 'N/A'
+        if (typeof vehicle.accessories === 'string' && vehicle.accessories.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(vehicle.accessories)
+            if (Array.isArray(parsed)) {
+              accessoriesList = parsed.map((acc: any) => {
+                if (typeof acc === 'string') return acc
+                return `${acc.product || acc.name || 'N/A'} - ${acc.brand || 'N/A'}`
+              }).join('; ')
+            }
+          } catch {
+            // Keep original if parsing fails
+          }
+        }
+
+        // Parse issues if it's a JSON string
+        let issuesList = vehicle.issues || 'N/A'
+        if (typeof vehicle.issues === 'string' && vehicle.issues.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(vehicle.issues)
+            if (Array.isArray(parsed)) {
+              issuesList = parsed.join('; ')
+            }
+          } catch {
+            // Keep original if parsing fails
+          }
+        }
+
+        // Format date
+        const formattedDate = vehicle.date ? new Date(vehicle.date).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        }) : 'N/A'
+
+        return {
+          'S.No': index + 1,
+          'Vehicle ID': vehicle.shortId || vehicle.id.substring(0, 8),
+          'Registration Number': vehicle.regNo,
+          'Make': vehicle.make,
+          'Model': vehicle.model,
+          'Year': vehicle.year || 'N/A',
+          'Color': vehicle.color || 'N/A',
+          'Customer Name': vehicle.customer,
+          'Customer Phone': vehicle.customerPhone || 'N/A',
+          'Customer Email': vehicle.customerEmail || 'N/A',
+          'Customer Address': vehicle.customerAddress || 'N/A',
+          'City': vehicle.customerCity || 'N/A',
+          'State': vehicle.customerState || 'N/A',
+          'Pincode': vehicle.customerPincode || 'N/A',
+          'Status': vehicle.status?.replace('_', ' ').toUpperCase() || 'N/A',
+          'Inward Date': formattedDate,
+          'Priority': vehicle.priority || 'N/A',
+          'Odometer Reading': vehicle.odometerReading ? `${vehicle.odometerReading} km` : 'N/A',
+          'Issues Reported': issuesList,
+          'Accessories Requested': accessoriesList,
+          'Estimated Cost': vehicle.estimatedCost ? `₹${parseFloat(vehicle.estimatedCost).toLocaleString('en-IN')}` : 'N/A',
+          'Discount Amount': vehicle.hasDiscount ? `₹${vehicle.discountAmount.toLocaleString('en-IN')}` : 'N/A',
+          'Discount Percentage': vehicle.hasDiscount ? `${vehicle.discountPercentage}%` : 'N/A',
+          'Discount Offered By': vehicle.discountOfferedBy || 'N/A',
+          'Total Services': vehicle.totalServices || 0,
+          'Next Service Date': vehicle.nextService !== 'N/A' ? new Date(vehicle.nextService).toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          }) : 'N/A',
+          'Accountant Complete': vehicle.isAccountantComplete ? 'Yes' : 'No'
+        }
+      })
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.json_to_sheet(exportData)
+
+      // Set column widths for better readability
+      const colWidths = [
+        { wch: 6 },   // S.No
+        { wch: 12 },  // Vehicle ID
+        { wch: 18 },  // Registration Number
+        { wch: 15 },  // Make
+        { wch: 20 },  // Model
+        { wch: 6 },   // Year
+        { wch: 12 },  // Color
+        { wch: 25 },  // Customer Name
+        { wch: 15 },  // Customer Phone
+        { wch: 25 },  // Customer Email
+        { wch: 30 },  // Customer Address
+        { wch: 15 },  // City
+        { wch: 15 },  // State
+        { wch: 10 },  // Pincode
+        { wch: 20 },  // Status
+        { wch: 15 },  // Inward Date
+        { wch: 12 },  // Priority
+        { wch: 15 },  // Odometer Reading
+        { wch: 40 },  // Issues Reported
+        { wch: 50 },  // Accessories Requested
+        { wch: 15 },  // Estimated Cost
+        { wch: 15 },  // Discount Amount
+        { wch: 15 },  // Discount Percentage
+        { wch: 20 },  // Discount Offered By
+        { wch: 12 },  // Total Services
+        { wch: 15 },  // Next Service Date
+        { wch: 18 }   // Accountant Complete
+      ]
+      ws['!cols'] = colWidths
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Vehicles')
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '')
+      const filename = `vehicles_export_${timestamp}.xlsx`
+
+      // Write file and trigger download
+      XLSX.writeFile(wb, filename)
+
+      // Show success message
+      alert(`Successfully exported ${vehiclesToExport.length} vehicle(s) to ${filename}`)
+      
+      // Clear selection after export
+      if (selectedVehicles.length > 0) {
+        setSelectedVehicles([])
+      }
+    } catch (error) {
+      console.error('Error exporting vehicles:', error)
+      alert('Failed to export vehicles. Please try again.')
+    }
+  }
+
   const handleStatusUpdate = async (vehicleId: string, newStatus: string) => {
     setIsUpdating(true)
     try {
@@ -335,7 +480,7 @@ export default function VehiclesPageClient() {
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button 
-            onClick={() => alert('Export vehicles data')}
+            onClick={handleExportVehicles}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -350,6 +495,14 @@ export default function VehiclesPageClient() {
               cursor: 'pointer',
               boxShadow: '0 2px 5px rgba(5,150,105,0.2)',
               transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#047857'
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(5,150,105,0.3)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#059669'
+              e.currentTarget.style.boxShadow = '0 2px 5px rgba(5,150,105,0.2)'
             }}
           >
             <FileText style={{ width: '1rem', height: '1rem' }} />
@@ -925,7 +1078,7 @@ export default function VehiclesPageClient() {
           <span>{selectedVehicles.length} vehicles selected</span>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
-              onClick={() => alert(`Export ${selectedVehicles.length} vehicles`)}
+              onClick={handleExportVehicles}
               style={{
                 padding: '0.5rem 1rem',
                 backgroundColor: 'white',
@@ -933,7 +1086,15 @@ export default function VehiclesPageClient() {
                 border: 'none',
                 borderRadius: '0.25rem',
                 fontSize: '0.875rem',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                fontWeight: '500',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#f0f9ff'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'white'
               }}
             >
               Export

@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     }
 
     // Use server client to check if user exists
+    // cookies() in API routes returns mutable RequestCookies, so cookies can be set
     const cookieStore = cookies()
     const supabase = createClient(cookieStore)
 

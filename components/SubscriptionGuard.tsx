@@ -39,8 +39,15 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
 
   const checkSubscriptionStatus = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (!user || authError) {
+        // Session expired - redirect to login
+        console.log('Session expired in SubscriptionGuard, redirecting to login')
+        if (typeof window !== 'undefined') {
+          sessionStorage.clear()
+          await supabase.auth.signOut()
+          router.push('/login')
+        }
         setLoading(false)
         return
       }

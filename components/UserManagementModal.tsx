@@ -146,8 +146,43 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
   }
 
   const createUser = async () => {
-    // Get current tenant ID
-    const tenantId = getCurrentTenantId()
+    // Get current tenant ID - try multiple methods
+    let tenantId = getCurrentTenantId()
+    
+    // If tenant_id is missing, try to fetch it from database
+    if (!tenantId) {
+      console.warn('⚠️ tenant_id not found in sessionStorage, fetching from database...')
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: tenantUser } = await supabase
+          .from('tenant_users')
+          .select('tenant_id')
+          .eq('user_id', user.id)
+          .single()
+        
+        if (tenantUser?.tenant_id) {
+          tenantId = tenantUser.tenant_id
+          sessionStorage.setItem('current_tenant_id', tenantId)
+          console.log('✅ tenant_id fetched and set:', tenantId)
+        } else {
+          console.error('❌ Could not find tenant_id for current user')
+          throw new Error('Cannot create user: Tenant ID is required. Please log out and log in again.')
+        }
+      }
+    } else {
+      console.log('✅ Using tenant_id from sessionStorage:', tenantId)
+    }
+    
+    if (!tenantId) {
+      throw new Error('Cannot create user: Tenant ID is required. Please log out and log in again.')
+    }
+    
+    console.log('📤 Creating user with:', {
+      email: formData.email,
+      name: formData.name,
+      role: role,
+      tenant_id: tenantId
+    })
     
     // Call API route to create user
     const response = await fetch('/api/users/create', {
@@ -167,12 +202,44 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
       })
     })
 
-    const result = await response.json()
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to create user')
+    let result
+    try {
+      const responseText = await response.text()
+      console.log('Raw API response:', responseText)
+      console.log('Response status:', response.status)
+      
+      if (!responseText || responseText.trim() === '') {
+        throw new Error(`Empty response from server (${response.status} ${response.statusText})`)
+      }
+      
+      try {
+        result = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error('Failed to parse JSON response:', parseError)
+        throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}`)
+      }
+    } catch (jsonError: any) {
+      console.error('❌ User creation failed - response parsing error:', jsonError)
+      throw new Error(jsonError.message || `Failed to create user: ${response.status} ${response.statusText}`)
     }
 
+    if (!response.ok) {
+      console.error('❌ User creation failed:', result)
+      console.error('Response status:', response.status)
+      console.error('Response statusText:', response.statusText)
+      console.error('Full result object:', JSON.stringify(result, null, 2))
+      
+      // Build error message from available fields
+      const errorMessage = result?.error || 
+                          result?.details || 
+                          result?.message ||
+                          (typeof result === 'string' ? result : null) ||
+                          `Failed to create user (${response.status})`
+      
+      throw new Error(errorMessage)
+    }
+
+    console.log('✅ User created successfully:', result)
     return result
   }
 

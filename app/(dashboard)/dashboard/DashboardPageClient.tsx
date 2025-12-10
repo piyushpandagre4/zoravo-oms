@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown, Save, X, CheckCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Car, Wrench, Calendar, FileText, AlertCircle, DollarSign, Plus, Search, Eye, Edit, Trash2, Loader2, TrendingUp, TrendingDown, Save, X, CheckCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight, RefreshCw, Clock } from 'lucide-react'
 import { dbService, type DashboardKPIs, type Vehicle, type Invoice } from '@/lib/database-service'
 import { checkUserRole, canViewRevenue, type UserRole } from '@/lib/rbac'
 import DashboardCharts from '@/components/dashboard-charts'
@@ -29,29 +29,110 @@ export default function DashboardPageClient() {
   const [departmentColors, setDepartmentColors] = useState<Map<string, string>>(new Map())
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [touchStart, setTouchStart] = useState<number | null>(null)
+  const [touchEnd, setTouchEnd] = useState<number | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const vehiclesPerPage = 3 // Show 3 full KIPs cards per page
+  
+  // Minimum swipe distance (in pixels)
+  const minSwipeDistance = 50
+
+  // Get filtered vehicles for full-screen view
+  const getFilteredVehicles = () => {
+    return recentVehicles.filter(vehicle => {
+      const status = vehicle.status?.toLowerCase().trim() || ''
+      const validStatuses = [
+        'pending',
+        'in_progress',
+        'in progress',
+        'under_installation',
+        'under installation',
+        'installation_complete',
+        'installation complete',
+        'completed'
+      ]
+      return validStatuses.includes(status)
+    })
+  }
+
+  // Handle swipe/touch navigation
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null)
+    setTouchStart(e.targetTouches[0].clientX)
+  }
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX)
+  }
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return
+    
+    const distance = touchStart - touchEnd
+    const isLeftSwipe = distance > minSwipeDistance
+    const isRightSwipe = distance < -minSwipeDistance
+    
+    const filteredVehicles = getFilteredVehicles()
+    const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
+    
+    if (isLeftSwipe && currentPage < totalPages) {
+      setCurrentPage(prev => Math.min(prev + 1, totalPages))
+    }
+    if (isRightSwipe && currentPage > 1) {
+      setCurrentPage(prev => Math.max(prev - 1, 1))
+    }
+  }
+
+  // Handle mouse drag navigation
+  const onMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true)
+    setTouchEnd(null)
+    setTouchStart(e.clientX)
+  }
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return
+    setTouchEnd(e.clientX)
+  }
+
+  const onMouseUp = () => {
+    if (!isDragging) return
+    setIsDragging(false)
+    
+    if (!touchStart || !touchEnd) return
+    
+    const distance = touchStart - touchEnd
+    const isLeftSwipe = distance > minSwipeDistance
+    const isRightSwipe = distance < -minSwipeDistance
+    
+    const filteredVehicles = getFilteredVehicles()
+    const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
+    
+    if (isLeftSwipe && currentPage < totalPages) {
+      setCurrentPage(prev => Math.min(prev + 1, totalPages))
+    }
+    if (isRightSwipe && currentPage > 1) {
+      setCurrentPage(prev => Math.max(prev - 1, 1))
+    }
+    
+    setTouchStart(null)
+    setTouchEnd(null)
+  }
 
   // Keyboard navigation for full-screen view
   useEffect(() => {
-    if (!isFullScreen || userRole !== 'installer') return
+    if (!isFullScreen) return
 
-    const filteredVehicles = recentVehicles.filter(vehicle => {
-      const status = vehicle.status?.toLowerCase().trim() || ''
-      return status === 'pending' || 
-             status === 'in_progress' || 
-             status === 'in progress' ||
-             status === 'under_installation' ||
-             status === 'under installation'
-    })
+    const filteredVehicles = getFilteredVehicles()
     const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
 
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' && currentPage > 1) {
-        setCurrentPage(currentPage - 1)
+        setCurrentPage(prev => prev - 1)
       } else if (e.key === 'ArrowRight' && currentPage < totalPages) {
-        setCurrentPage(currentPage + 1)
+        setCurrentPage(prev => prev + 1)
       } else if (e.key === 'Escape') {
         setIsFullScreen(false)
         setCurrentPage(1)
@@ -59,7 +140,7 @@ export default function DashboardPageClient() {
     }
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [isFullScreen, currentPage, userRole, recentVehicles.length])
+  }, [isFullScreen, currentPage, recentVehicles.length])
   const [adminMetrics, setAdminMetrics] = useState<{
     totalVehicles: number
     jobsInProgress: number
@@ -79,6 +160,12 @@ export default function DashboardPageClient() {
   const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
   const [invoiceNumberInputs, setInvoiceNumberInputs] = useState<Map<string, string>>(new Map())
   const [updatingInvoiceNumber, setUpdatingInvoiceNumber] = useState<Set<string>>(new Set())
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
+  
+  // Auto-refresh interval based on user role (installers need faster refresh)
+  const AUTO_REFRESH_INTERVAL = userRole === 'installer' ? 30000 : 60000 // 30s for installer, 60s for others
 
   useEffect(() => {
     loadDashboardData()
@@ -89,6 +176,19 @@ export default function DashboardPageClient() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefreshEnabled || !userRole) return
+
+    const interval = setInterval(() => {
+      if (!isRefreshing && !loading) {
+        loadDashboardData(true) // Silent refresh
+      }
+    }, AUTO_REFRESH_INTERVAL)
+
+    return () => clearInterval(interval)
+  }, [autoRefreshEnabled, isRefreshing, loading, userRole, AUTO_REFRESH_INTERVAL])
 
   const loadRelatedData = async () => {
     try {
@@ -149,13 +249,17 @@ export default function DashboardPageClient() {
     }
   }
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (silent: boolean = false) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      } else {
+        setIsRefreshing(true)
+      }
       const [kpisData, vehiclesData, invoicesData] = await Promise.all([
         dbService.getDashboardKPIs(),
-        dbService.getRecentVehicles(5),
-        dbService.getRecentInvoices(5)
+        dbService.getRecentVehicles(1000), // Fetch all vehicles (high limit to get all)
+        dbService.getRecentInvoices(1000) // Fetch all invoices (high limit to get all)
       ])
       
       setKpis(kpisData)
@@ -169,6 +273,7 @@ export default function DashboardPageClient() {
       
       // Compute admin overview metrics from actual tables for accuracy
       await computeAdminMetrics()
+      setLastRefreshTime(new Date())
     } catch (error) {
       console.error('Error loading dashboard data:', error)
       // Fallback to demo data if database is not available
@@ -188,7 +293,12 @@ export default function DashboardPageClient() {
       })
     } finally {
       setLoading(false)
+      setIsRefreshing(false)
     }
+  }
+
+  const handleManualRefresh = () => {
+    loadDashboardData(false)
   }
 
   const loadProductCompletions = (vehicles: Vehicle[]) => {
@@ -624,46 +734,92 @@ export default function DashboardPageClient() {
   }
 
   return (
-    <div style={{ backgroundColor: '#f9fafb', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
-      {/* Header */}
-      <div style={{ backgroundColor: 'white', borderBottom: '1px solid #e5e7eb', padding: isMobile ? '1rem' : '1.5rem 2rem' }}>
+    <>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      <div style={{ 
+        backgroundColor: '#f9fafb', 
+        minHeight: '100vh', 
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      }}>
+        {/* Header */}
+        <div style={{ 
+          backgroundColor: 'white', 
+          borderBottom: '1px solid #e5e7eb', 
+          padding: isMobile ? '1rem' : '1.5rem 2rem'
+        }}>
         <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: isMobile ? '0.75rem' : '0' , flexDirection: isMobile ? 'column' : 'row' }}>
           <div>
             <h1 style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: '700', color: '#111827', margin: '0 0 0.25rem 0' }}>Dashboard</h1>
             <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: 0 }}>Track your business performance</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: isMobile ? '100%' : 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: isMobile ? '100%' : 'auto', flexWrap: 'wrap' }}>
             <button 
-              onClick={loadDashboardData}
+              onClick={handleManualRefresh}
+              disabled={isRefreshing || loading}
               style={{
                 display: 'flex', width: isMobile ? '100%' : 'auto', justifyContent: 'center',
                 alignItems: 'center',
                 gap: '0.5rem',
+                backgroundColor: isRefreshing ? '#f1f5f9' : '#059669',
+                color: isRefreshing ? '#64748b' : 'white',
+                cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                opacity: isRefreshing ? 0.7 : 1,
+                fontWeight: '500',
                 padding: isMobile ? '0.5rem 1rem' : '0.625rem 1.25rem',
-                backgroundColor: '#f3f4f6',
-                color: '#374151',
-                border: '1px solid #e5e7eb',
+                border: 'none',
                 borderRadius: '0.625rem',
                 fontSize: '0.875rem',
-                fontWeight: '500',
-                cursor: 'pointer',
                 transition: 'all 0.2s'
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#e5e7eb'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#f3f4f6'
-              }}
+              title="Refresh data"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-                <path d="M21 3v5h-5"/>
-                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-                <path d="M3 21v-5h5"/>
-              </svg>
-              Refresh
+              <RefreshCw style={{ 
+                width: '1rem', 
+                height: '1rem',
+                animation: isRefreshing ? 'spin 1s linear infinite' : 'none'
+              }} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </button>
+            <button 
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+              style={{
+                padding: isMobile ? '0.5rem 1rem' : '0.625rem 1.25rem',
+                backgroundColor: autoRefreshEnabled ? '#dcfce7' : '#fee2e2',
+                color: autoRefreshEnabled ? '#166534' : '#dc2626',
+                border: `1px solid ${autoRefreshEnabled ? '#86efac' : '#fecaca'}`,
+                borderRadius: '0.625rem',
+                fontSize: '0.75rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                width: isMobile ? '100%' : 'auto',
+                justifyContent: 'center'
+              }}
+              title={autoRefreshEnabled ? `Auto-refresh enabled (${AUTO_REFRESH_INTERVAL / 1000}s)` : 'Auto-refresh disabled'}
+            >
+              <Clock style={{ width: '0.875rem', height: '0.875rem' }} />
+              {autoRefreshEnabled ? 'Auto: ON' : 'Auto: OFF'}
+            </button>
+            {lastRefreshTime && (
+              <span style={{ 
+                fontSize: '0.75rem', 
+                color: '#64748b',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                padding: '0.5rem'
+              }}>
+                <Clock style={{ width: '0.75rem', height: '0.75rem' }} />
+                {lastRefreshTime.toLocaleTimeString()}
+              </span>
+            )}
             {!isMobile && (userRole === 'admin' || userRole === 'manager' || userRole === 'coordinator') && (
             <button 
               onClick={() => router.push('/inward/new')}
@@ -1008,7 +1164,31 @@ export default function DashboardPageClient() {
             <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '0.875rem', padding: '1.25rem', marginTop: '1.25rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Recent Activity</div>
-                <button onClick={loadDashboardData} style={{ border: '1px solid #e5e7eb', background: 'white', padding: '0.375rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.75rem' }}>Refresh</button>
+                <button 
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing || loading}
+                  style={{ 
+                    border: '1px solid #e5e7eb', 
+                    background: isRefreshing ? '#f1f5f9' : '#059669',
+                    color: isRefreshing ? '#64748b' : 'white',
+                    padding: '0.375rem 0.75rem', 
+                    borderRadius: '0.375rem', 
+                    cursor: isRefreshing ? 'not-allowed' : 'pointer', 
+                    fontSize: '0.75rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    opacity: isRefreshing ? 0.7 : 1
+                  }}
+                  title="Refresh data"
+                >
+                  <RefreshCw style={{ 
+                    width: '0.75rem', 
+                    height: '0.75rem',
+                    animation: isRefreshing ? 'spin 1s linear infinite' : 'none'
+                  }} />
+                  {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
                 {recentVehicles.slice(0,6).map(v => (
@@ -1030,33 +1210,37 @@ export default function DashboardPageClient() {
 
         {activeTab === 'vehicles' && (
           <>
-            {/* Full Screen View for Installers - Exact Same Cards */}
-            {isFullScreen && userRole === 'installer' && (() => {
-              const filteredVehicles = recentVehicles.filter(vehicle => {
-                const status = vehicle.status?.toLowerCase().trim() || ''
-                return status === 'pending' || 
-                       status === 'in_progress' || 
-                       status === 'in progress' ||
-                       status === 'under_installation' ||
-                       status === 'under installation'
-              })
+            {/* Full Screen View - Available for All Users with Swipe Support */}
+            {isFullScreen && (() => {
+              const filteredVehicles = getFilteredVehicles()
               const totalPages = Math.ceil(filteredVehicles.length / vehiclesPerPage)
               const startIndex = (currentPage - 1) * vehiclesPerPage
               const endIndex = startIndex + vehiclesPerPage
               const currentVehicles = filteredVehicles.slice(startIndex, endIndex)
 
               return (
-                <div style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  backgroundColor: '#f8fafc',
-                  zIndex: 9999,
-                  padding: '2rem',
-                  overflow: 'auto'
-                }}>
+                <div 
+                  style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: '#f8fafc',
+                    zIndex: 9999,
+                    padding: '2rem',
+                    overflow: 'auto',
+                    userSelect: 'none', // Prevent text selection during drag
+                    cursor: isDragging ? 'grabbing' : 'grab'
+                  }}
+                  onTouchStart={onTouchStart}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                  onMouseDown={onMouseDown}
+                  onMouseMove={onMouseMove}
+                  onMouseUp={onMouseUp}
+                  onMouseLeave={onMouseUp} // Reset on mouse leave
+                >
                   {/* Header */}
                   <div style={{
                     display: 'flex',
@@ -1541,84 +1725,121 @@ export default function DashboardPageClient() {
                     })}
                   </div>
 
-                  {/* Pagination Controls - Simplified with Next button */}
+                  {/* Pagination Controls - With Swipe Instructions */}
                   <div style={{
                     display: 'flex',
-                    justifyContent: 'center',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '2rem',
+                    gap: '1rem',
                     padding: '1.5rem',
                     backgroundColor: 'white',
                     borderRadius: '0.75rem',
                     border: '1px solid #e2e8f0'
                   }}>
-                    {currentPage > 1 && (
+                    {/* Swipe Instructions */}
+                    <div style={{
+                      fontSize: '0.875rem',
+                      color: '#6b7280',
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      justifyContent: 'center',
+                      flexWrap: 'wrap'
+                    }}>
+                      <span>💡 Swipe left/right, drag with mouse, or use arrow keys to navigate</span>
+                    </div>
+
+                    {/* Pagination Buttons */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      gap: '2rem',
+                      width: '100%'
+                    }}>
                       <button
-                        onClick={() => setCurrentPage(currentPage - 1)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setCurrentPage(prev => Math.max(prev - 1, 1))
+                        }}
+                        disabled={currentPage === 1}
                         style={{
                           padding: '0.75rem 1.5rem',
-                          backgroundColor: '#2563eb',
-                          color: '#ffffff',
+                          backgroundColor: currentPage === 1 ? '#e5e7eb' : '#2563eb',
+                          color: currentPage === 1 ? '#9ca3af' : '#ffffff',
                           border: 'none',
                           borderRadius: '0.5rem',
                           fontSize: '1rem',
                           fontWeight: '600',
-                          cursor: 'pointer',
+                          cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
-                          transition: 'all 0.2s'
+                          transition: 'all 0.2s',
+                          opacity: currentPage === 1 ? 0.5 : 1
                         }}
                         onMouseOver={(e) => {
-                          e.currentTarget.style.backgroundColor = '#1d4ed8'
+                          if (currentPage > 1) {
+                            e.currentTarget.style.backgroundColor = '#1d4ed8'
+                          }
                         }}
                         onMouseOut={(e) => {
-                          e.currentTarget.style.backgroundColor = '#2563eb'
+                          if (currentPage > 1) {
+                            e.currentTarget.style.backgroundColor = '#2563eb'
+                          }
                         }}
                       >
                         <ChevronLeft style={{ width: '1.25rem', height: '1.25rem' }} />
                         Previous
                       </button>
-                    )}
 
-                    <div style={{
-                      fontSize: '1.125rem',
-                      color: '#1e293b',
-                      fontWeight: '600',
-                      minWidth: '120px',
-                      textAlign: 'center'
-                    }}>
-                      Page {currentPage} of {totalPages}
-                    </div>
+                      <div style={{
+                        fontSize: '1.125rem',
+                        color: '#1e293b',
+                        fontWeight: '600',
+                        minWidth: '120px',
+                        textAlign: 'center'
+                      }}>
+                        Page {currentPage} of {totalPages}
+                      </div>
 
-                    {currentPage < totalPages && (
                       <button
-                        onClick={() => setCurrentPage(currentPage + 1)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setCurrentPage(prev => Math.min(prev + 1, totalPages))
+                        }}
+                        disabled={currentPage === totalPages}
                         style={{
                           padding: '0.75rem 1.5rem',
-                          backgroundColor: '#2563eb',
-                          color: '#ffffff',
+                          backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#2563eb',
+                          color: currentPage === totalPages ? '#9ca3af' : '#ffffff',
                           border: 'none',
                           borderRadius: '0.5rem',
                           fontSize: '1rem',
                           fontWeight: '600',
-                          cursor: 'pointer',
+                          cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
-                          transition: 'all 0.2s'
+                          transition: 'all 0.2s',
+                          opacity: currentPage === totalPages ? 0.5 : 1
                         }}
                         onMouseOver={(e) => {
-                          e.currentTarget.style.backgroundColor = '#1d4ed8'
+                          if (currentPage < totalPages) {
+                            e.currentTarget.style.backgroundColor = '#1d4ed8'
+                          }
                         }}
                         onMouseOut={(e) => {
-                          e.currentTarget.style.backgroundColor = '#2563eb'
+                          if (currentPage < totalPages) {
+                            e.currentTarget.style.backgroundColor = '#2563eb'
+                          }
                         }}
                       >
                         Next
                         <ChevronRight style={{ width: '1.25rem', height: '1.25rem' }} />
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               )
@@ -1675,7 +1896,7 @@ export default function DashboardPageClient() {
                 const status = vehicle.status?.toLowerCase().trim() || ''
                 
                 // Define final statuses that should be excluded from Recent Vehicles
-                // Only "Delivered" is final - "Completed" can still appear
+                // Only "Delivered" and "Complete and Delivered" are final states
                 const finalStatuses = ['delivered', 'complete_and_delivered']
                 
                 // Always exclude delivered from Recent Vehicles (final stage)
@@ -1683,31 +1904,26 @@ export default function DashboardPageClient() {
                   return false
                 }
                 
-                // For installers: show pending, in_progress, under_installation; hide installation_complete
+                // Define all statuses from Pending to Completed (inclusive)
+                const validStatuses = [
+                  'pending',
+                  'in_progress',
+                  'in progress',
+                  'under_installation',
+                  'under installation',
+                  'installation_complete',
+                  'installation complete',
+                  'completed'
+                ]
+                
+                // For installers: show all statuses from pending to completed
                 if (userRole === 'installer') {
-                  return status === 'pending' || 
-                         status === 'in_progress' || 
-                         status === 'in progress' ||
-                         status === 'under_installation' ||
-                         status === 'under installation'
+                  return validStatuses.includes(status)
                 }
                 
-                // For admin/manager: filter out vehicles that have been "installation_complete" for more than 24 hours
-                if (status === 'installation_complete' || status === 'installation complete') {
-                  const updatedAt = vehicle.updated_at || vehicle.created_at
-                  if (updatedAt) {
-                    const updatedDate = new Date(updatedAt)
-                    const twentyFourHoursAgo = new Date()
-                    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
-                    // Exclude if updated more than 24 hours ago
-                    if (updatedDate < twentyFourHoursAgo) {
-                      return false
-                    }
-                  }
-                }
-                
-                // For admin/manager: show all other vehicles
-                return true
+                // For admin/manager: show all statuses from pending to completed
+                // No time-based filtering - show all vehicles in these statuses
+                return validStatuses.includes(status)
               })
               .map((vehicle) => {
                 const statusColors = getStatusColor(vehicle.status)
@@ -2115,7 +2331,7 @@ export default function DashboardPageClient() {
                 const status = vehicle.status?.toLowerCase().trim() || ''
                 
                 // Define final statuses that should be excluded from Recent Vehicles
-                // Only "Delivered" is final - "Completed" can still appear
+                // Only "Delivered" and "Complete and Delivered" are final states
                 const finalStatuses = ['delivered', 'complete_and_delivered']
                 
                 // Always exclude delivered from Recent Vehicles (final stage)
@@ -2123,31 +2339,26 @@ export default function DashboardPageClient() {
                   return false
                 }
                 
-                // For installers: show pending, in_progress, under_installation
+                // Define all statuses from Pending to Completed (inclusive)
+                const validStatuses = [
+                  'pending',
+                  'in_progress',
+                  'in progress',
+                  'under_installation',
+                  'under installation',
+                  'installation_complete',
+                  'installation complete',
+                  'completed'
+                ]
+                
+                // For installers: show all statuses from pending to completed
                 if (userRole === 'installer') {
-                  return status === 'pending' || 
-                         status === 'in_progress' || 
-                         status === 'in progress' ||
-                         status === 'under_installation' ||
-                         status === 'under installation'
+                  return validStatuses.includes(status)
                 }
                 
-                // For admin/manager: filter out vehicles that have been "installation_complete" for more than 24 hours
-                if (status === 'installation_complete' || status === 'installation complete') {
-                  const updatedAt = vehicle.updated_at || vehicle.created_at
-                  if (updatedAt) {
-                    const updatedDate = new Date(updatedAt)
-                    const twentyFourHoursAgo = new Date()
-                    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
-                    // Exclude if updated more than 24 hours ago
-                    if (updatedDate < twentyFourHoursAgo) {
-                      return false
-                    }
-                  }
-                }
-                
-                // For admin/manager: show all other vehicles
-                return true
+                // For admin/manager: show all statuses from pending to completed
+                // No time-based filtering - show all vehicles in these statuses
+                return validStatuses.includes(status)
               }).length === 0 && (
               <div style={{
                 gridColumn: '1 / -1',
@@ -2607,5 +2818,6 @@ export default function DashboardPageClient() {
         )}
       </div>
     </div>
+    </>
   )
 }
