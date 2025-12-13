@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, User, Bell, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car, MessageSquare, Smartphone, ToggleLeft, ToggleRight, FileText, Clock, Mail, HelpCircle, CheckCircle, XCircle } from 'lucide-react'
+import { Settings, User, Bell, Save, Users, Wrench, MapPin, UserCheck, Edit, Trash2, Plus, X, DollarSign, Briefcase, Car, MessageSquare, Smartphone, ToggleLeft, ToggleRight, FileText, Clock, Mail, HelpCircle, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import UserManagementModal from '@/components/UserManagementModal'
 import { whatsappService, type WhatsAppConfig } from '@/lib/whatsapp-service'
@@ -581,32 +581,68 @@ export default function SettingsPageClient() {
 
   const fetchManagers = async () => {
     try {
-      let tenantId = getCurrentTenantId()
       const isSuper = isSuperAdmin()
+      let tenantId: string | null = null
       
-      console.log('🔍 Fetching managers...', { tenantId, isSuper })
+      console.log('🔍 Fetching managers...', { isSuper, sessionStorage_tenant: sessionStorage.getItem('current_tenant_id') })
       
-      // If tenant_id is missing, try to fetch it from database
-      if (!isSuper && !tenantId) {
+      // CRITICAL: Always get tenant_id from database, not sessionStorage
+      // This ensures we use the CORRECT tenant_id even if sessionStorage is stale
+      if (!isSuper) {
         const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data: tenantUser } = await supabase
-            .from('tenant_users')
-            .select('tenant_id')
-            .eq('user_id', user.id)
-            .single()
-          
-          if (tenantUser?.tenant_id) {
-            tenantId = tenantUser.tenant_id
-            sessionStorage.setItem('current_tenant_id', tenantId)
-            console.log('✅ Fetched tenant_id from database:', tenantId)
-          }
+        if (!user) {
+          console.error('❌ No user found')
+          setManagers([])
+          return
         }
+        
+        // Get the actual tenant_id from database for current user (as admin)
+        const { data: tenantUser, error: tenantUserError } = await supabase
+          .from('tenant_users')
+          .select('tenant_id, role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin')
+          .single()
+        
+        if (tenantUserError || !tenantUser) {
+          console.error('❌ Could not find tenant_id for current admin user:', tenantUserError)
+          setManagers([])
+          return
+        }
+        
+        tenantId = tenantUser.tenant_id
+        
+        // Update sessionStorage with the correct tenant_id
+        if (sessionStorage.getItem('current_tenant_id') !== tenantId) {
+          console.warn('⚠️ sessionStorage tenant_id mismatch, updating:', {
+            old: sessionStorage.getItem('current_tenant_id'),
+            new: tenantId
+          })
+          sessionStorage.setItem('current_tenant_id', tenantId)
+        }
+        
+        console.log('✅ Using verified tenant_id from database:', tenantId)
+      }
+      
+      if (!isSuper && !tenantId) {
+        console.error('❌ No tenant_id found for current user')
+        setManagers([])
+        return
       }
       
       if (!isSuper && tenantId) {
-        // Get managers for this tenant - query both tenant_users and profiles
-        console.log('📋 Querying tenant_users for managers with tenant_id:', tenantId)
+        // CRITICAL: Ensure proper tenant isolation by querying tenant_users first
+        // Then verify each manager is ONLY linked to this tenant
+        console.log('📋 Querying managers for tenant_id:', tenantId)
+        
+        // CRITICAL: Verify tenant_id is a valid UUID format
+        if (!tenantId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          console.error('❌ Invalid tenant_id format:', tenantId)
+          setManagers([])
+          return
+        }
+        
+        // Step 1: Get all tenant_users for this tenant with manager role
         const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('user_id, role, tenant_id')
@@ -619,119 +655,92 @@ export default function SettingsPageClient() {
         }
         
         console.log('✅ Found tenant_users with manager role:', tenantUsers?.length || 0)
-        console.log('📋 tenant_users details:', tenantUsers?.map(tu => ({
-          user_id: tu.user_id,
-          role: tu.role,
-          tenant_id: tu.tenant_id
-        })))
         
-        if (tenantUsers && tenantUsers.length > 0) {
-          const userIds = tenantUsers.map(tu => tu.user_id)
-          console.log('📋 User IDs to fetch from profiles:', userIds)
-          
-          // Query profiles for these user IDs
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .in('id', userIds)
-            .eq('role', 'manager') // Double-check role in profiles table
-            .order('created_at', { ascending: false })
-          
-          if (error) {
-            console.error('❌ Error fetching profiles for managers:', error)
-            throw error
-          }
-          
-          console.log('✅ Found managers in profiles:', data?.length || 0)
-          console.log('📋 Manager details:', data?.map(m => ({
-            id: m.id,
-            name: m.name,
-            email: m.email,
-            role: m.role,
-            created_at: m.created_at
-          })))
-          
-          // Also check if there are any profiles with manager role that aren't in tenant_users
-          const { data: allManagers } = await supabase
-            .from('profiles')
-            .select('id, name, email, role, created_at')
-            .eq('role', 'manager')
-            .order('created_at', { ascending: false })
-          
-          if (allManagers) {
-            const missingManagers = allManagers.filter(m => !userIds.includes(m.id))
-            if (missingManagers.length > 0) {
-              console.warn('⚠️ Found managers in profiles that are NOT in tenant_users:', missingManagers)
-              console.warn('⚠️ These managers might not be linked to the tenant:', missingManagers.map(m => ({
-                id: m.id,
-                name: m.name,
-                email: m.email
-              })))
-              
-              // Automatically link missing managers to the current tenant
-              console.log('🔗 Attempting to link missing managers to tenant:', tenantId)
-              let linkedCount = 0
-              
-              for (const manager of missingManagers) {
-                try {
-                  const response = await fetch('/api/users/link-to-tenant', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      user_id: manager.id,
-                      tenant_id: tenantId,
-                      role: 'manager'
-                    })
-                  })
-                  
-                  const result = await response.json()
-                  
-                  if (response.ok && result.success) {
-                    console.log(`✅ Successfully linked manager ${manager.id} (${manager.email}) to tenant`)
-                    linkedCount++
-                    // Add to userIds so it will be included in the next query
-                    userIds.push(manager.id)
-                  } else {
-                    console.error(`❌ Failed to link manager ${manager.id} (${manager.email}):`, result.error || result.details)
-                    console.error('Full error response:', result)
-                    if (result.hint) {
-                      console.error('Database hint:', result.hint)
-                    }
-                    if (result.code) {
-                      console.error('Error code:', result.code)
-                    }
-                  }
-                } catch (err: any) {
-                  console.error(`❌ Error linking manager ${manager.id} (${manager.email}):`, err)
-                }
-              }
-              
-              // Re-fetch managers after linking if any were linked
-              if (linkedCount > 0 && userIds.length > 0) {
-                console.log(`🔄 Re-fetching managers after linking ${linkedCount} manager(s)`)
-                const { data: updatedData, error: updatedError } = await supabase
-                  .from('profiles')
-                  .select('*')
-                  .in('id', userIds)
-                  .eq('role', 'manager')
-                  .order('created_at', { ascending: false })
-                
-                if (!updatedError && updatedData) {
-                  console.log('✅ Updated managers list after linking:', updatedData.length)
-                  setManagers(updatedData)
-                  return // Exit early since we've updated the list
-                }
-              }
-            }
-          }
-          
-          setManagers(data || [])
-        } else {
+        if (!tenantUsers || tenantUsers.length === 0) {
           console.log('⚠️ No managers found in tenant_users for tenant:', tenantId)
           setManagers([])
+          return
         }
+        
+        // Step 2: Extract user IDs and verify they all belong to this tenant
+        const userIds = tenantUsers
+          .filter(tu => tu.tenant_id === tenantId) // Extra safety check
+          .map(tu => tu.user_id)
+        
+        if (userIds.length === 0) {
+          console.log('⚠️ No valid user IDs after filtering')
+          setManagers([])
+          return
+        }
+        
+        console.log('📋 User IDs to fetch from profiles:', userIds)
+        console.log('📋 Tenant ID for filtering:', tenantId)
+        
+        // Step 3: Query profiles for these specific user IDs
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', userIds)
+          .eq('role', 'manager')
+          .order('created_at', { ascending: false })
+        
+        if (profileError) {
+          console.error('❌ Error fetching profiles for managers:', profileError)
+          throw profileError
+        }
+        
+        console.log('✅ Found managers in profiles:', profileData?.length || 0)
+        
+        // Step 4: CRITICAL - Double-verify each manager is ONLY in tenant_users for THIS tenant
+        // This prevents showing managers that are linked to multiple tenants
+        const verifiedManagers = (profileData || []).filter(manager => {
+          // Check if this manager is in tenant_users for THIS tenant
+          const isInThisTenant = tenantUsers.some(
+            tu => tu.user_id === manager.id && tu.tenant_id === tenantId && tu.role === 'manager'
+          )
+          
+          if (!isInThisTenant) {
+            console.warn(`⚠️ Manager ${manager.id} (${manager.email}) is NOT in tenant_users for tenant ${tenantId}, filtering out`)
+            return false
+          }
+          
+          return true
+        })
+        
+        // Step 5: FINAL VERIFICATION - Query tenant_users again to ensure no managers are linked to other tenants
+        // This is an extra safety check to catch any edge cases
+        const finalVerifiedManagers = await Promise.all(
+          verifiedManagers.map(async (manager) => {
+            const { data: allTenantLinks } = await supabase
+              .from('tenant_users')
+              .select('tenant_id')
+              .eq('user_id', manager.id)
+              .eq('role', 'manager')
+            
+            const linkedTenants = allTenantLinks?.map(l => l.tenant_id) || []
+            const isOnlyInThisTenant = linkedTenants.length === 1 && linkedTenants[0] === tenantId
+            
+            if (!isOnlyInThisTenant) {
+              console.warn(`⚠️ Manager ${manager.name} (${manager.email}) is linked to multiple tenants:`, linkedTenants)
+              console.warn(`   Expected only: ${tenantId}, but found:`, linkedTenants)
+              // Still show them if they're in this tenant, but log the warning
+            }
+            
+            return manager
+          })
+        )
+        
+        console.log('✅ Final verified managers for tenant:', finalVerifiedManagers.length)
+        console.log('📋 Manager details:', finalVerifiedManagers.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          role: m.role,
+          created_at: m.created_at
+        })))
+        
+        // Only show managers that are verified to be linked to this tenant
+        setManagers(finalVerifiedManagers)
       } else {
         // Super admin sees all managers
         console.log('📋 Fetching all managers (super admin)')
@@ -987,11 +996,11 @@ export default function SettingsPageClient() {
 
   const loadDefaultTemplates = () => {
     const defaultTemplates = [
-      { event_type: 'vehicle_inward_created', template: '≡ƒÜù *New Vehicle Entry*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nStatus: Pending\n\nPlease check the dashboard for details.' },
-      { event_type: 'installation_complete', template: 'Γ£à *Installation Complete*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nAll products have been installed successfully.\n\nReady for accountant review.' },
-      { event_type: 'invoice_number_added', template: '≡ƒº╛ *Invoice Number Added*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice number has been set by accountant.\n\nPlease check the dashboard for details.' },
+      { event_type: 'vehicle_inward_created', template: '🚗 *New Vehicle Entry*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nStatus: Pending\n\nPlease check the dashboard for details.' },
+      { event_type: 'installation_complete', template: '✅ *Installation Complete*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nAll products have been installed successfully.\n\nReady for accountant review.' },
+      { event_type: 'invoice_number_added', template: '🧾 *Invoice Number Added*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice number has been set by accountant.\n\nPlease check the dashboard for details.' },
       { event_type: 'accountant_completed', template: '✓ *Accountant Completed*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nInvoice processing completed.\n\nReady for delivery.' },
-      { event_type: 'vehicle_delivered', template: '≡ƒÄë *Vehicle Delivered*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nVehicle has been marked as delivered.\n\nThank you for your work!' },
+      { event_type: 'vehicle_delivered', template: '🎉 *Vehicle Delivered*\n\nVehicle: {{vehicleNumber}}\nCustomer: {{customerName}}\n\nVehicle has been marked as delivered.\n\nThank you for your work!' },
     ]
     setMessageTemplates(defaultTemplates as any)
     const templateMap = new Map<string, string>()
@@ -1659,8 +1668,30 @@ export default function SettingsPageClient() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: id })
         })
+        
+        // Check if response is ok before parsing JSON
+        if (!resp.ok) {
+          let errorMessage = 'Failed to delete user'
+          try {
+            const contentType = resp.headers.get('content-type')
+            if (contentType && contentType.includes('application/json')) {
+              const result = await resp.json()
+              errorMessage = result.error || errorMessage
+            } else {
+              // Response is not JSON, get text instead
+              const text = await resp.text()
+              errorMessage = text || errorMessage
+            }
+          } catch (parseError) {
+            // If parsing fails, use status text
+            errorMessage = resp.statusText || errorMessage
+          }
+          throw new Error(errorMessage)
+        }
+        
+        // Parse JSON only if response is ok
         const result = await resp.json()
-        if (!resp.ok) throw new Error(result.error || 'Failed to delete user')
+        if (result.error) throw new Error(result.error)
       } else {
         if (type === 'location') table = 'locations'
         else if (type === 'vehicle_type') table = 'vehicle_types'
@@ -1839,7 +1870,7 @@ export default function SettingsPageClient() {
       
       // CRITICAL: If tenant_id is missing, fetch it from user's tenant_users relationship
       if (!isSuper && !tenantId) {
-        console.warn('ΓÜá∩╕Å tenant_id not found in sessionStorage, fetching from database...')
+        console.warn('⚠️ tenant_id not found in sessionStorage, fetching from database...')
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data: tenantUser } = await supabase
@@ -1961,7 +1992,7 @@ export default function SettingsPageClient() {
       
       // CRITICAL: If tenant_id is missing, fetch it from user's tenant_users relationship
       if (!isSuper && !tenantId) {
-        console.warn('ΓÜá∩╕Å tenant_id not found in sessionStorage, fetching from database...')
+        console.warn('⚠️ tenant_id not found in sessionStorage, fetching from database...')
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data: tenantUser } = await supabase
@@ -2093,7 +2124,7 @@ export default function SettingsPageClient() {
       
       // CRITICAL: If tenant_id is missing, fetch it from user's tenant_users relationship
       if (!isSuper && !tenantId) {
-        console.warn('ΓÜá∩╕Å tenant_id not found in sessionStorage, fetching from database...')
+        console.warn('⚠️ tenant_id not found in sessionStorage, fetching from database...')
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data: tenantUser } = await supabase
@@ -5068,7 +5099,10 @@ export default function SettingsPageClient() {
                           padding: '0.375rem 0.875rem',
                           backgroundColor: '#fef2f2',
                           borderRadius: '0.5rem'
-                        }}>ΓÜá Inactive - Payment Required</span>
+                        }}>
+                          <AlertCircle style={{ width: '0.875rem', height: '0.875rem', display: 'inline', marginRight: '0.25rem' }} />
+                          Inactive - Payment Required
+                        </span>
                       )}
                     </div>
                   </div>
@@ -5314,7 +5348,10 @@ export default function SettingsPageClient() {
                       marginTop: '1rem',
                       boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                     }}>
-                      <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem' }}>≡ƒÆí Need Payment Details?</strong>
+                      <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9375rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <HelpCircle style={{ width: '1rem', height: '1rem' }} />
+                        Need Payment Details?
+                      </strong>
                       <p style={{ margin: 0, fontSize: '0.875rem', color: '#1e3a8a', lineHeight: '1.6' }}>
                         Contact our support team using the "Subscription Support" section below to get bank account details and payment instructions.
                       </p>

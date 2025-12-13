@@ -78,6 +78,9 @@ export default function AccountsPageClient() {
   const [discountOfferedBy, setDiscountOfferedBy] = useState<string>('')
   const [discountReason, setDiscountReason] = useState<string>('')
   const [savingDiscount, setSavingDiscount] = useState(false)
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState(false)
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState<string>('')
+  const [updatingInvoiceNumber, setUpdatingInvoiceNumber] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -99,6 +102,9 @@ export default function AccountsPageClient() {
         setDiscountOfferedBy(selectedEntry.discountOfferedBy || '')
         setDiscountReason(selectedEntry.discountReason || '')
       }
+      // Load invoice number for editing
+      setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+      setEditingInvoiceNumber(false)
     }
   }, [selectedEntry])
 
@@ -800,6 +806,89 @@ export default function AccountsPageClient() {
       console.error('Error uploading invoice:', error)
       alert(`Failed to upload invoice: ${error.message}`)
       setInvoiceLoading(false)
+    }
+  }
+
+  const handleInvoiceNumberUpdate = async () => {
+    if (!selectedEntry) return
+    
+    // Allow both admin and accountant to update invoice number
+    if (userRole !== 'admin' && userRole !== 'accountant') return
+    
+    setUpdatingInvoiceNumber(true)
+    
+    try {
+      // Get vehicle data to update notes
+      const { data: vehicleData } = await supabase
+        .from('vehicle_inward')
+        .select('notes')
+        .eq('id', selectedEntry.id)
+        .single()
+      
+      // Parse existing notes or create new object
+      let notesData: any = {}
+      if (vehicleData?.notes) {
+        try {
+          notesData = JSON.parse(vehicleData.notes)
+        } catch {
+          notesData = {}
+        }
+      }
+      
+      // Update invoice number
+      notesData.invoice_number = invoiceNumberInput.trim() || null
+      
+      // Update in database
+      const { error } = await supabase
+        .from('vehicle_inward')
+        .update({ 
+          notes: JSON.stringify(notesData),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedEntry.id)
+      
+      if (error) throw error
+      
+      // Send WhatsApp notification if invoice number was added
+      if (invoiceNumberInput.trim()) {
+        try {
+          const { data: vehicleData } = await supabase
+            .from('vehicle_inward')
+            .select('*')
+            .eq('id', selectedEntry.id)
+            .single()
+          
+          if (vehicleData) {
+            // Import notification workflow dynamically
+            const { notificationWorkflow } = await import('@/lib/notification-workflow')
+            await notificationWorkflow.notifyInvoiceAdded(selectedEntry.id, vehicleData)
+          }
+        } catch (notifError) {
+          console.error('Error sending notification:', notifError)
+        }
+      }
+      
+      // Update local state
+      setSelectedEntry({
+        ...selectedEntry,
+        invoiceNumber: invoiceNumberInput.trim() || undefined
+      })
+      
+      // Update entries list
+      setEntries(prev => prev.map(entry => 
+        entry.id === selectedEntry.id 
+          ? { ...entry, invoiceNumber: invoiceNumberInput.trim() || undefined }
+          : entry
+      ))
+      
+      setEditingInvoiceNumber(false)
+      alert('Invoice number updated successfully!')
+      
+    } catch (error: any) {
+      console.error('Error updating invoice number:', error)
+      alert(`Failed to update invoice number: ${error.message}`)
+    } finally {
+      setUpdatingInvoiceNumber(false)
     }
   }
 
@@ -2239,35 +2328,158 @@ export default function AccountsPageClient() {
                 </div>
               )}
 
-              {/* Invoice Number - Display for all users */}
-              {selectedEntry.invoiceNumber && (
-                <div style={{ marginBottom: '2rem' }}>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
-                    Invoice Number
-                  </h3>
+              {/* Invoice Number - Editable for Admin and Accountant */}
+              <div style={{ marginBottom: '2rem' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
+                  Invoice Number
+                </h3>
+                {(userRole === 'admin' || userRole === 'accountant') ? (
                   <div style={{ 
                     backgroundColor: '#f0f9ff', 
                     borderRadius: '0.75rem', 
                     padding: '1.25rem',
                     border: '1px solid #bae6fd'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
-                        Invoice Number (External Platform):
+                    {editingInvoiceNumber ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#0369a1', fontWeight: '600', marginBottom: '0.25rem' }}>
+                          Invoice Number (External Platform):
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={invoiceNumberInput}
+                            onChange={(e) => setInvoiceNumberInput(e.target.value)}
+                            placeholder="Enter invoice number from external platform"
+                            style={{
+                              flex: 1,
+                              padding: '0.625rem',
+                              borderRadius: '0.5rem',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '0.875rem',
+                              outline: 'none',
+                              focus: { borderColor: '#0284c7' }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleInvoiceNumberUpdate()
+                              } else if (e.key === 'Escape') {
+                                setEditingInvoiceNumber(false)
+                                setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            onClick={handleInvoiceNumberUpdate}
+                            disabled={updatingInvoiceNumber}
+                            style={{
+                              padding: '0.625rem 1rem',
+                              borderRadius: '0.5rem',
+                              backgroundColor: '#0284c7',
+                              color: 'white',
+                              border: 'none',
+                              cursor: updatingInvoiceNumber ? 'not-allowed' : 'pointer',
+                              fontSize: '0.875rem',
+                              fontWeight: '500',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              opacity: updatingInvoiceNumber ? 0.6 : 1
+                            }}
+                          >
+                            {updatingInvoiceNumber ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingInvoiceNumber(false)
+                              setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                            }}
+                            disabled={updatingInvoiceNumber}
+                            style={{
+                              padding: '0.625rem 1rem',
+                              borderRadius: '0.5rem',
+                              backgroundColor: '#e5e7eb',
+                              color: '#374151',
+                              border: 'none',
+                              cursor: updatingInvoiceNumber ? 'not-allowed' : 'pointer',
+                              fontSize: '0.875rem',
+                              fontWeight: '500'
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ 
-                        fontSize: '1.125rem', 
-                        fontWeight: '700', 
-                        color: '#0c4a6e',
-                        letterSpacing: '0.05em'
-                      }}>
-                        {selectedEntry.invoiceNumber}
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
+                            Invoice Number (External Platform):
+                          </div>
+                          <div style={{ 
+                            fontSize: '1.125rem', 
+                            fontWeight: '700', 
+                            color: selectedEntry.invoiceNumber ? '#0c4a6e' : '#9ca3af',
+                            letterSpacing: '0.05em'
+                          }}>
+                            {selectedEntry.invoiceNumber || 'No invoice number set'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingInvoiceNumber(true)
+                            setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                          }}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            borderRadius: '0.5rem',
+                            backgroundColor: '#0284c7',
+                            color: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            whiteSpace: 'nowrap'
+                          }}
+                          title={selectedEntry.invoiceNumber ? 'Edit invoice number' : 'Add invoice number'}
+                        >
+                          <Edit2 style={{ width: '1rem', height: '1rem' }} />
+                          {selectedEntry.invoiceNumber ? 'Edit' : 'Add'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // Display only for other roles
+                  selectedEntry.invoiceNumber && (
+                    <div style={{ 
+                      backgroundColor: '#f0f9ff', 
+                      borderRadius: '0.75rem', 
+                      padding: '1.25rem',
+                      border: '1px solid #bae6fd'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
+                          Invoice Number (External Platform):
+                        </div>
+                        <div style={{ 
+                          fontSize: '1.125rem', 
+                          fontWeight: '700', 
+                          color: '#0c4a6e',
+                          letterSpacing: '0.05em'
+                        }}>
+                          {selectedEntry.invoiceNumber}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              )}
+                  )
+                )}
+              </div>
 
               {/* Invoice References */}
               <div style={{ marginBottom: '2rem' }}>

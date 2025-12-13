@@ -315,13 +315,33 @@ export default function RequirementsPageClient() {
     if (!newComment.trim() && selectedCommentFiles.length === 0) return
 
     try {
+      // Get current user's name
+      const { data: { user } } = await supabase.auth.getUser()
+      let createdByName = 'User'
+      
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', user.id)
+          .single()
+        
+        if (profile?.name) {
+          createdByName = profile.name
+        } else if (user.user_metadata?.name) {
+          createdByName = user.user_metadata.name
+        } else if (user.email) {
+          createdByName = user.email.split('@')[0] // Use email username as fallback
+        }
+      }
+      
       const tenantId = getCurrentTenantId()
       const { data: commentData, error: commentError } = await supabase
         .from('customer_requirements_comments')
         .insert({
           requirement_id: selectedRequirement.id,
           comment: newComment.trim() || '(No comment text)',
-          created_by: 'Demo Admin',
+          created_by: createdByName,
           attachments_count: selectedCommentFiles.length,
           tenant_id: tenantId || null // Add tenant_id for data isolation
         })

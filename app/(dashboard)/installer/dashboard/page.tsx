@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Calendar, CheckCircle, Clock, AlertCircle, Maximize2, Minimize2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
 
 interface VehicleInward {
   id: string
@@ -106,6 +107,10 @@ export default function InstallerDashboard() {
 
       if (!profile) return
 
+      // CRITICAL: Get tenant_id for proper data isolation
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+
       // Fetch vehicles assigned to this installer
       // Show all vehicles from "Pending" to "Completed" (same logic as main dashboard)
       // Define all statuses from Pending to Completed (inclusive)
@@ -120,7 +125,8 @@ export default function InstallerDashboard() {
         'completed'
       ]
       
-      const { data: inwardData, error } = await supabase
+      // CRITICAL: Build query with tenant filter
+      let query = supabase
         .from('vehicle_inward')
         .select(`
           *,
@@ -135,8 +141,16 @@ export default function InstallerDashboard() {
           )
         `)
         .in('status', validStatuses)
+        .eq('assigned_installer_id', profile.id) // Only vehicles assigned to this installer
         .order('created_at', { ascending: false })
         .limit(1000) // Fetch all vehicles (high limit to get all)
+      
+      // CRITICAL: Add tenant filter for security
+      if (!isSuper && tenantId) {
+        query = query.eq('tenant_id', tenantId)
+      }
+      
+      const { data: inwardData, error } = await query
 
       if (error) throw error
 
