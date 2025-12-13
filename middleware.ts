@@ -139,8 +139,10 @@ export async function middleware(request: NextRequest) {
     }
   }
   
-  // Skip workspace detection for admin routes, API routes, and static files
+  // Skip workspace detection for public routes, admin routes, API routes, and static files
+  const publicRoutes = ['/', '/login', '/about', '/pricing', '/forgot-password', '/reset-password']
   if (
+    publicRoutes.includes(url.pathname) ||
     url.pathname.startsWith('/admin') ||
     url.pathname.startsWith('/api') ||
     url.pathname.startsWith('/_next') ||
@@ -151,7 +153,8 @@ export async function middleware(request: NextRequest) {
   }
   
   // If workspace URL is detected from subdomain, add it to headers and query params
-  if (workspaceUrl && workspaceUrl !== 'www' && workspaceUrl !== 'app') {
+  // Only do this for protected routes (dashboard routes)
+  if (workspaceUrl && workspaceUrl !== 'www' && workspaceUrl !== 'app' && isProtectedRoute(url.pathname)) {
     // Add workspace URL to request headers for use in pages
     response.headers.set('x-workspace-url', workspaceUrl)
     

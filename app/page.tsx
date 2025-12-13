@@ -648,20 +648,21 @@ function LandingPageContent() {
             style={{
               position: 'relative',
               backgroundColor: 'white',
-              borderRadius: '1rem',
-              padding: '2rem',
+              borderRadius: '1.25rem',
+              padding: '2.5rem',
               border: '1px solid #e5e7eb',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.12)',
               animation: 'fadeInUp 1s ease-out 0.3s both',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              maxWidth: '100%'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-4px)'
-              e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.15)'
+              e.currentTarget.style.transform = 'translateY(-6px)'
+              e.currentTarget.style.boxShadow = '0 25px 60px rgba(0,0,0,0.18)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.1)'
+              e.currentTarget.style.boxShadow = '0 20px 50px rgba(0,0,0,0.12)'
             }}
           >
             <div style={{
@@ -669,93 +670,233 @@ function LandingPageContent() {
               borderRadius: '0.5rem',
               padding: '0'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              {/* Header */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.875rem', 
+                marginBottom: '2rem',
+                paddingBottom: '1.25rem',
+                borderBottom: '2px solid #f1f5f9'
+              }}>
                 <div style={{
-                  width: '2rem',
-                  height: '2rem',
-                  borderRadius: '0.25rem',
+                  width: '2.5rem',
+                  height: '2.5rem',
+                  borderRadius: '0.5rem',
                   background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
                 }}>
-                  <BarChart3 style={{ color: 'white', width: '1rem', height: '1rem' }} />
+                  <BarChart3 style={{ color: 'white', width: '1.25rem', height: '1.25rem' }} />
                 </div>
-                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '600', color: '#1f2937' }}>
-                  Dashboard Overview
-                </h3>
+                <div>
+                  <h3 style={{ 
+                    margin: 0, 
+                    fontSize: '1.375rem', 
+                    fontWeight: '700', 
+                    color: '#0f172a',
+                    letterSpacing: '-0.01em'
+                  }}>
+                    Dashboard Overview
+                  </h3>
+                  <p style={{
+                    margin: '0.25rem 0 0 0',
+                    fontSize: '0.8125rem',
+                    color: '#64748b',
+                    fontWeight: '500'
+                  }}>
+                    Real-time business insights
+                  </p>
+                </div>
               </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+              {/* Stats Grid */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr', 
+                gap: '1.25rem', 
+                marginBottom: '2rem' 
+              }}>
                 {[
-                  { label: 'Vehicles in Workshop', value: '12', color: '#2563eb' },
-                  { label: 'Jobs in Progress', value: '8', color: '#059669' },
-                  { label: "Today's Intakes", value: '5', color: '#dc2626' },
-                  { label: 'Monthly Revenue', value: '₹2.4L', color: '#7c3aed' }
-                ].map((stat, index) => (
-                  <div key={index} style={{
-                    padding: '1rem',
-                    backgroundColor: '#f9fafb',
-                    borderRadius: '0.5rem',
-                    border: '1px solid #e5e7eb'
-                  }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: stat.color, marginBottom: '0.25rem' }}>
-                      {stat.value}
+                  { label: 'Vehicles in Workshop', value: '12', color: '#2563eb', bgColor: '#eff6ff', icon: Car },
+                  { label: 'Jobs in Progress', value: '8', color: '#059669', bgColor: '#f0fdf4', icon: CheckCircle },
+                  { label: "Today's Intakes", value: '5', color: '#dc2626', bgColor: '#fef2f2', icon: TrendingUp },
+                  { label: 'Monthly Revenue', value: '₹2.4L', color: '#7c3aed', bgColor: '#faf5ff', icon: BarChart3 }
+                ].map((stat, index) => {
+                  const IconComponent = stat.icon
+                  return (
+                    <div 
+                      key={index} 
+                      style={{
+                        padding: '1.25rem',
+                        backgroundColor: stat.bgColor,
+                        borderRadius: '0.75rem',
+                        border: `1.5px solid ${stat.color}20`,
+                        transition: 'all 0.3s ease',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)'
+                        e.currentTarget.style.boxShadow = `0 8px 20px ${stat.color}25`
+                        e.currentTarget.style.borderColor = `${stat.color}40`
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)'
+                        e.currentTarget.style.boxShadow = 'none'
+                        e.currentTarget.style.borderColor = `${stat.color}20`
+                      }}
+                    >
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        marginBottom: '0.75rem'
+                      }}>
+                        <div style={{
+                          width: '2rem',
+                          height: '2rem',
+                          borderRadius: '0.5rem',
+                          backgroundColor: stat.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: 0.15
+                        }}>
+                          <IconComponent style={{ color: stat.color, width: '1rem', height: '1rem' }} />
+                        </div>
+                      </div>
+                      <div style={{ 
+                        fontSize: '2rem', 
+                        fontWeight: '800', 
+                        color: stat.color, 
+                        marginBottom: '0.375rem',
+                        lineHeight: '1.2'
+                      }}>
+                        {stat.value}
+                      </div>
+                      <div style={{ 
+                        fontSize: '0.8125rem', 
+                        color: '#475569',
+                        fontWeight: '600',
+                        lineHeight: '1.4'
+                      }}>
+                        {stat.label}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                      {stat.label}
+                  )
+                })}
+              </div>
+              
+              {/* Enhanced Revenue Chart */}
+              <div style={{
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                borderRadius: '0.875rem',
+                padding: '1.5rem',
+                border: '1.5px solid #e2e8f0',
+                position: 'relative',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+              }}>
+                {/* Header */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div>
+                    <div style={{
+                      fontSize: '0.875rem',
+                      fontWeight: '600',
+                      color: '#1f2937',
+                      marginBottom: '0.25rem'
+                    }}>
+                      Revenue Trend
+                    </div>
+                    <div style={{
+                      fontSize: '0.75rem',
+                      color: '#64748b'
+                    }}>
+                      Last 7 days
                     </div>
                   </div>
-                ))}
-              </div>
-              
-              {/* Enhanced Revenue Chart with Mini Visualization */}
-              <div style={{
-                height: '140px',
-                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                borderRadius: '0.5rem',
-                padding: '1rem',
-                border: '1px solid #e2e8f0',
-                position: 'relative',
-                overflow: 'hidden'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '100%', gap: '0.5rem' }}>
+                  <div style={{
+                    fontSize: '1.125rem',
+                    fontWeight: '700',
+                    color: '#2563eb'
+                  }}>
+                    ₹2.4L
+                  </div>
+                </div>
+                
+                {/* Chart Bars Container */}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'flex-end', 
+                  height: '140px',
+                  gap: '0.625rem',
+                  marginBottom: '1.25rem',
+                  paddingBottom: '0.5rem'
+                }}>
                   {[65, 80, 55, 90, 75, 85, 70].map((height, i) => (
                     <div
                       key={i}
                       style={{
                         flex: 1,
                         height: `${height}%`,
-                        background: 'linear-gradient(180deg, #2563eb 0%, #4f46e5 100%)',
-                        borderRadius: '0.25rem 0.25rem 0 0',
-                        minWidth: '20px',
+                        background: `linear-gradient(180deg, ${i === 3 ? '#2563eb' : '#3b82f6'} 0%, ${i === 3 ? '#4f46e5' : '#6366f1'} 100%)`,
+                        borderRadius: '0.375rem 0.375rem 0 0',
+                        minWidth: '24px',
+                        maxWidth: '40px',
                         animation: `fadeInUp 0.6s ease-out ${i * 0.1}s both`,
                         position: 'relative',
                         cursor: 'pointer',
-                        transition: 'all 0.2s'
+                        transition: 'all 0.3s ease',
+                        boxShadow: i === 3 ? '0 4px 12px rgba(37, 99, 235, 0.4)' : '0 2px 6px rgba(37, 99, 235, 0.2)'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.opacity = '0.8'
-                        e.currentTarget.style.transform = 'scaleY(1.1)'
+                        e.currentTarget.style.opacity = '0.85'
+                        e.currentTarget.style.transform = 'scaleY(1.05) translateY(-2px)'
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(37, 99, 235, 0.5)'
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.opacity = '1'
-                        e.currentTarget.style.transform = 'scaleY(1)'
+                        e.currentTarget.style.transform = 'scaleY(1) translateY(0)'
+                        e.currentTarget.style.boxShadow = i === 3 ? '0 4px 12px rgba(37, 99, 235, 0.4)' : '0 2px 6px rgba(37, 99, 235, 0.2)'
                       }}
-                      title={`Revenue: ₹${(height * 1000).toLocaleString()}`}
+                      title={`Day ${i + 1}: ₹${(height * 1000).toLocaleString()}`}
                     />
                   ))}
                 </div>
+                
+                {/* Footer - View Analytics Link */}
                 <div style={{
-                  position: 'absolute',
-                  bottom: '0.5rem',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  fontSize: '0.75rem',
-                  color: '#6b7280',
-                  fontWeight: '500'
-                }}>
-                  Revenue Trend → View more details
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  paddingTop: '0.75rem',
+                  borderTop: '1px solid #e5e7eb',
+                  fontSize: '0.8125rem',
+                  color: '#2563eb',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#1d4ed8'
+                  e.currentTarget.style.gap = '0.625rem'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#2563eb'
+                  e.currentTarget.style.gap = '0.5rem'
+                }}
+                >
+                  <span>View detailed analytics</span>
+                  <ArrowRight style={{ width: '0.875rem', height: '0.875rem' }} />
                 </div>
               </div>
             </div>
