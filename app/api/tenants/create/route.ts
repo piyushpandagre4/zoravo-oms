@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { 
       organizationName, 
+      city,
       adminName, 
       adminEmail,
       adminPhone,
@@ -20,11 +21,37 @@ export async function POST(request: Request) {
       )
     }
 
+    // Validate company name length
+    if (organizationName.length < 2 || organizationName.length > 80) {
+      return NextResponse.json(
+        { error: 'Company name must be between 2 and 80 characters' },
+        { status: 400 }
+      )
+    }
+
+    // Validate name length
+    if (adminName.length < 2 || adminName.length > 60) {
+      return NextResponse.json(
+        { error: 'Full name must be between 2 and 60 characters' },
+        { status: 400 }
+      )
+    }
+
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(adminEmail)) {
       return NextResponse.json(
         { error: 'Invalid email format' },
+        { status: 400 }
+      )
+    }
+
+    // Validate phone number (E.164 format: +91 followed by 10 digits)
+    const phoneRegex = /^\+91[6-9]\d{9}$/
+    const cleanedPhone = adminPhone.replace(/\s/g, '')
+    if (!phoneRegex.test(cleanedPhone)) {
+      return NextResponse.json(
+        { error: 'Invalid phone number. Please use format: +91 followed by 10 digits' },
         { status: 400 }
       )
     }
@@ -45,7 +72,7 @@ export async function POST(request: Request) {
     
     if (userExists) {
       return NextResponse.json(
-        { error: 'Email already registered. Please use a different email or sign in.' },
+        { error: 'This email already has an account. Login instead.' },
         { status: 409 }
       )
     }
@@ -77,17 +104,24 @@ export async function POST(request: Request) {
     const trialEndsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
     // Create tenant - active for 24 hours trial, then requires payment approval
+    const tenantData: any = {
+      name: organizationName,
+      workspace_url: workspaceUrl,
+      tenant_code: nextCode,
+      is_active: true, // Active during 24-hour trial period
+      is_free: false,
+      subscription_status: 'trial', // Trial status - will change to 'active' after payment approval
+      trial_ends_at: trialEndsAt
+    }
+    
+    // Add city if provided (optional field)
+    if (city && city.trim()) {
+      tenantData.city = city.trim()
+    }
+
     const { data: tenant, error: tenantError } = await adminSupabase
       .from('tenants')
-      .insert({
-        name: organizationName,
-        workspace_url: workspaceUrl,
-        tenant_code: nextCode,
-        is_active: true, // Active during 24-hour trial period
-        is_free: false,
-        subscription_status: 'trial', // Trial status - will change to 'active' after payment approval
-        trial_ends_at: trialEndsAt
-      })
+      .insert(tenantData)
       .select()
       .single()
 
@@ -99,7 +133,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Create admin user
+    // Create admin user (use cleaned phone number in E.164 format)
     const { data: authData, error: createUserError } = await adminSupabase.auth.admin.createUser({
       email: adminEmail,
       password: adminPassword,
@@ -107,7 +141,7 @@ export async function POST(request: Request) {
       user_metadata: {
         name: adminName,
         role: 'admin',
-        phone: adminPhone
+        phone: cleanedPhone // Store in E.164 format
       }
     })
 

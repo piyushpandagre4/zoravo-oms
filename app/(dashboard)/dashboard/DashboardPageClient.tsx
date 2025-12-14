@@ -210,14 +210,43 @@ export default function DashboardPageClient() {
         setVehicleTypeNames(typesMap)
       }
 
-      // Fetch all managers
-      const { data: managers } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .eq('role', 'manager')
-      if (managers) {
-        const managersMap = new Map(managers.map(mgr => [mgr.id, mgr.name]))
-        setManagerNames(managersMap)
+      // Fetch managers with tenant filtering
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      if (!isSuper && tenantId) {
+        // Get managers for this tenant via tenant_users table
+        const { data: tenantUsers, error: tenantUsersError } = await supabase
+          .from('tenant_users')
+          .select('user_id')
+          .eq('tenant_id', tenantId)
+          .eq('role', 'manager')
+        
+        if (!tenantUsersError && tenantUsers && tenantUsers.length > 0) {
+          const userIds = tenantUsers.map(tu => tu.user_id)
+          const { data: managers, error: managersError } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', userIds)
+            .eq('role', 'manager')
+          
+          if (!managersError && managers) {
+            const managersMap = new Map(managers.map(mgr => [mgr.id, mgr.name]))
+            setManagerNames(managersMap)
+          }
+        } else {
+          setManagerNames(new Map())
+        }
+      } else {
+        // Super admin sees all managers
+        const { data: managers } = await supabase
+          .from('profiles')
+          .select('id, name')
+          .eq('role', 'manager')
+        if (managers) {
+          const managersMap = new Map(managers.map(mgr => [mgr.id, mgr.name]))
+          setManagerNames(managersMap)
+        }
       }
 
       // Fetch all departments
@@ -234,6 +263,62 @@ export default function DashboardPageClient() {
       console.error('Error loading related data:', error)
     }
   }
+
+  // Fetch missing manager names for vehicles that have manager IDs not in the map
+  useEffect(() => {
+    const fetchMissingManagerNames = async () => {
+      try {
+        const managerIds = new Set<string>()
+        
+        // Collect all unique manager IDs from vehicles
+        recentVehicles.forEach(vehicle => {
+          const managerId = (vehicle as any).assigned_manager_id
+          if (managerId) {
+            managerIds.add(managerId)
+          }
+        })
+        
+        // Also check invoices
+        recentInvoices.forEach(invoice => {
+          const managerId = (invoice as any).manager
+          if (managerId) {
+            managerIds.add(managerId)
+          }
+        })
+        
+        if (managerIds.size > 0) {
+          // Get current manager names to check what's missing
+          const currentManagerNames = managerNames
+          const missingIds = Array.from(managerIds).filter(id => !currentManagerNames.has(id))
+          
+          if (missingIds.length > 0) {
+            const { data: missingManagers, error } = await supabase
+              .from('profiles')
+              .select('id, name')
+              .in('id', missingIds)
+              .eq('role', 'manager')
+            
+            if (!error && missingManagers && missingManagers.length > 0) {
+              setManagerNames(prev => {
+                const updated = new Map(prev)
+                missingManagers.forEach(mgr => {
+                  updated.set(mgr.id, mgr.name)
+                })
+                return updated
+              })
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching missing manager names:', error)
+      }
+    }
+    
+    if ((recentVehicles.length > 0 || recentInvoices.length > 0) && managerNames.size > 0) {
+      fetchMissingManagerNames()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentVehicles, recentInvoices])
 
   const loadUserRole = async () => {
     const profile = await checkUserRole()

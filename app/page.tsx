@@ -31,7 +31,10 @@ import {
   Building2,
   Facebook,
   MapPin,
-  Code
+  Code,
+  Eye,
+  EyeOff,
+  Check
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 
@@ -2017,34 +2020,214 @@ export default function LandingPage() {
 function CreateAccountModal({ onClose }: { onClose: () => void }) {
   const [formData, setFormData] = useState({
     organizationName: '',
+    city: '',
     adminName: '',
     adminEmail: '',
-    adminPhone: '',
+    adminPhone: '+91 ',
     adminPassword: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    agreeToTerms: false,
+    sendUpdates: false
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const router = useRouter()
+
+  // Validation functions
+  const validateCompanyName = (value: string): string => {
+    if (!value.trim()) return 'Company name is required'
+    if (value.length < 2) return 'Company name must be at least 2 characters'
+    if (value.length > 80) return 'Company name must be less than 80 characters'
+    return ''
+  }
+
+  const validateName = (value: string): string => {
+    if (!value.trim()) return 'Full name is required'
+    if (value.length < 2) return 'Name must be at least 2 characters'
+    if (value.length > 60) return 'Name must be less than 60 characters'
+    return ''
+  }
+
+  const validateEmail = (value: string): string => {
+    if (!value.trim()) return 'Email is required'
+    const emailRegex = new RegExp('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+    if (!emailRegex.test(value)) return 'Please enter a valid email address'
+    return ''
+  }
+
+  const validatePhone = (value: string): string => {
+    if (!value.trim()) return 'Phone number is required'
+    // Remove spaces and check for +91 followed by 10 digits
+    const spacePattern = new RegExp('\\s', 'g')
+    const cleaned = value.replace(spacePattern, '')
+    const phoneRegex = new RegExp('^\\+91[6-9]\\d{9}$')
+    if (!phoneRegex.test(cleaned)) {
+      return 'Please enter a valid Indian phone number (+91 followed by 10 digits)'
+    }
+    return ''
+  }
+
+  const validatePassword = (value: string): string => {
+    if (!value) return 'Password is required'
+    if (value.length < 8) return 'Password must be at least 8 characters'
+    return ''
+  }
+
+  const validateConfirmPassword = (value: string, password: string): string => {
+    if (!value) return 'Please confirm your password'
+    if (value !== password) return 'Passwords do not match'
+    return ''
+  }
+
+  // Format phone number as user types
+  const formatPhoneNumber = (value: string): string => {
+    // Remove all non-digits except +
+    let cleaned = ''
+    for (let i = 0; i < value.length; i++) {
+      const char = value[i]
+      if ((char >= '0' && char <= '9') || char === '+') {
+        cleaned += char
+      }
+    }
+    
+    // Ensure it starts with +91
+    if (cleaned.startsWith('+91')) {
+      // Already has +91 prefix
+    } else if (cleaned.startsWith('+9')) {
+      cleaned = '+91' + cleaned.substring(2)
+    } else if (cleaned.startsWith('+')) {
+      cleaned = '+91' + cleaned.substring(1)
+    } else if (cleaned.startsWith('91')) {
+      cleaned = '+91' + cleaned.substring(2)
+    } else {
+      cleaned = '+91' + cleaned
+    }
+    
+    // Limit to +91 + 10 digits
+    if (cleaned.length > 13) {
+      cleaned = cleaned.substring(0, 13)
+    }
+    
+    // Add space after +91 if there are digits
+    if (cleaned.length > 3) {
+      cleaned = '+91 ' + cleaned.substring(3)
+    }
+    
+    return cleaned
+  }
+
+  // Handle field changes with inline validation
+  const handleFieldChange = (field: string, value: any) => {
+    // Format phone number before setting
+    if (field === 'adminPhone') {
+      value = formatPhoneNumber(value)
+    }
+    
+    setFormData(prev => ({ ...prev, [field]: value }))
+    setError('')
+    
+    // Clear validation error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      })
+    }
+
+    // Validate on change
+    let error = ''
+    switch (field) {
+      case 'organizationName':
+        error = validateCompanyName(value)
+        break
+      case 'adminName':
+        error = validateName(value)
+        break
+      case 'adminEmail':
+        error = validateEmail(value)
+        break
+      case 'adminPhone':
+        error = validatePhone(value)
+        break
+      case 'adminPassword':
+        error = validatePassword(value)
+        // Also validate confirm password if it has a value
+        if (formData.confirmPassword) {
+          const confirmError = validateConfirmPassword(formData.confirmPassword, value)
+          if (confirmError) {
+            setValidationErrors(prev => ({ ...prev, confirmPassword: confirmError }))
+          } else {
+            setValidationErrors(prev => {
+              const newErrors = { ...prev }
+              delete newErrors.confirmPassword
+              return newErrors
+            })
+          }
+        }
+        break
+      case 'confirmPassword':
+        error = validateConfirmPassword(value, formData.adminPassword)
+        break
+    }
+
+    if (error) {
+      setValidationErrors(prev => ({ ...prev, [field]: error }))
+    }
+  }
+
+  // Check if form is valid
+  const isFormValid = () => {
+    return (
+      !validateCompanyName(formData.organizationName) &&
+      !validateName(formData.adminName) &&
+      !validateEmail(formData.adminEmail) &&
+      !validatePhone(formData.adminPhone) &&
+      !validatePassword(formData.adminPassword) &&
+      !validateConfirmPassword(formData.confirmPassword, formData.adminPassword) &&
+      formData.agreeToTerms &&
+      Object.keys(validationErrors).length === 0
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    // Validation
-    if (formData.adminPassword !== formData.confirmPassword) {
-      setError('Passwords do not match')
+    // Validate all fields
+    const errors: Record<string, string> = {}
+    errors.organizationName = validateCompanyName(formData.organizationName)
+    errors.adminName = validateName(formData.adminName)
+    errors.adminEmail = validateEmail(formData.adminEmail)
+    errors.adminPhone = validatePhone(formData.adminPhone)
+    errors.adminPassword = validatePassword(formData.adminPassword)
+    errors.confirmPassword = validateConfirmPassword(formData.confirmPassword, formData.adminPassword)
+
+    // Remove empty errors
+    Object.keys(errors).forEach(key => {
+      if (!errors[key]) delete errors[key]
+    })
+
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors)
+      setError('Please fix the errors below')
       setLoading(false)
       return
     }
 
-    if (formData.adminPassword.length < 8) {
-      setError('Password must be at least 8 characters long')
+    if (!formData.agreeToTerms) {
+      setError('You must agree to the Terms of Service and Privacy Policy')
       setLoading(false)
       return
     }
+
+    // Format phone to E.164 (remove spaces)
+    const formattedPhone = formData.adminPhone.replace(/\s/g, '')
 
     try {
       const response = await fetch('/api/tenants/create', {
@@ -2054,9 +2237,10 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
         },
         body: JSON.stringify({
           organizationName: formData.organizationName,
+          city: formData.city || undefined,
           adminName: formData.adminName,
           adminEmail: formData.adminEmail,
-          adminPhone: formData.adminPhone,
+          adminPhone: formattedPhone,
           adminPassword: formData.adminPassword
         })
       })
@@ -2064,7 +2248,12 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || 'Failed to create account')
+        // Handle specific error messages
+        if (data.error?.includes('already registered') || data.error?.includes('already exists')) {
+          setError('This email already has an account. Please login instead.')
+        } else {
+          setError(data.error || 'Failed to create account. Please try again.')
+        }
         setLoading(false)
         return
       }
@@ -2075,7 +2264,7 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
         router.push(`/login?tenant=${data.tenant_code}`)
       }, 2000)
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred')
+      setError(err.message || 'An unexpected error occurred. Please try again.')
       setLoading(false)
     }
   }
@@ -2087,8 +2276,7 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-      backdropFilter: 'blur(4px)',
+      backgroundColor: '#F9FAFB',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -2113,532 +2301,609 @@ function CreateAccountModal({ onClose }: { onClose: () => void }) {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        @media (max-width: 768px) {
-          .modal-container {
-            grid-template-columns: 1fr !important;
-          }
-          .marketing-side {
-            display: none !important;
-          }
-        }
       `}</style>
+      
+      {/* Close button - top right */}
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: '1.5rem',
+          right: '1.5rem',
+          background: 'white',
+          border: '1px solid #E5E7EB',
+          borderRadius: '0.5rem',
+          width: '2.5rem',
+          height: '2.5rem',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#6B7280',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          transition: 'all 0.2s',
+          zIndex: 1001
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = '#D1D5DB'
+          e.currentTarget.style.color = '#111827'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = '#E5E7EB'
+          e.currentTarget.style.color = '#6B7280'
+        }}
+      >
+        <X style={{ width: '1.25rem', height: '1.25rem' }} />
+      </button>
+
+      {/* Centered Card */}
       <div style={{
         backgroundColor: 'white',
-        borderRadius: '1.5rem',
-        maxWidth: '900px',
+        borderRadius: '0.75rem',
+        maxWidth: '28rem',
         width: '100%',
         maxHeight: '95vh',
-        overflow: 'hidden',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.3)',
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        overflowY: 'auto',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #E5E7EB',
+        padding: '2rem',
         animation: 'slideUp 0.3s ease-out'
       }}
-      className="modal-container"
       onClick={(e) => e.stopPropagation()}
       >
-        {/* Left Side - Marketing Content */}
-        <div className="marketing-side" style={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          padding: '3rem 2.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          color: 'white',
-          position: 'relative',
-          overflow: 'hidden'
+        {/* Header */}
+        <div style={{
+          marginBottom: '1.25rem',
+          textAlign: 'left'
         }}>
-          <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', zIndex: 0 }}></div>
-          <div style={{ position: 'absolute', bottom: '-100px', left: '-100px', width: '300px', height: '300px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', zIndex: 0 }}></div>
-          
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <button
-              onClick={onClose}
-              style={{
-                position: 'absolute',
-                top: '-1rem',
-                right: '-1rem',
-                background: 'rgba(255,255,255,0.2)',
-                border: 'none',
-                borderRadius: '50%',
-                width: '2.5rem',
-                height: '2.5rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                backdropFilter: 'blur(10px)'
-              }}
-            >
-              <X style={{ width: '1.25rem', height: '1.25rem' }} />
-            </button>
-
-            <div style={{ marginBottom: '2rem' }}>
-              <div style={{ fontSize: '2.5rem', fontWeight: '800', lineHeight: '1.1', marginBottom: '1rem' }}>
-                Start Your Business Journey
-              </div>
-              <div style={{ fontSize: '1.125rem', opacity: 0.95, lineHeight: '1.6' }}>
-                Join hundreds of car accessories businesses already using Zoravo OMS to streamline operations and grow revenue.
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
-              {[
-                { icon: '🚀', title: 'Get Started in Minutes', desc: 'Quick setup, no technical knowledge required' },
-                { icon: '📊', title: 'Complete Business Management', desc: 'All tools in one place' },
-                { icon: '💰', title: 'Affordable Pricing', desc: '₹12,000/year - Best value in the market' },
-                { icon: '🛡️', title: '24-Hour Free Trial', desc: 'Try before you commit' }
-              ].map((feature, idx) => (
-                <div key={idx} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '2rem', flexShrink: 0 }}>{feature.icon}</div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.25rem' }}>{feature.title}</div>
-                    <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>{feature.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ position: 'relative', zIndex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.15)', borderRadius: '1rem', backdropFilter: 'blur(10px)' }}>
-            <div style={{ fontSize: '0.875rem', opacity: 0.95, marginBottom: '0.5rem' }}>✨ Trusted by 200+ Businesses</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: '700' }}>₹12,000<span style={{ fontSize: '1rem', fontWeight: '400' }}>/year</span></div>
-            <div style={{ fontSize: '0.875rem', opacity: 0.9, marginTop: '0.25rem' }}>Just ₹1,000/month • No hidden fees</div>
-          </div>
+          <h2 style={{
+            fontSize: '1.5rem',
+            fontWeight: '600',
+            color: '#111827',
+            margin: '0 0 0.25rem 0',
+            letterSpacing: '-0.025em'
+          }}>
+            Create your Zoravo account
+          </h2>
+          <p style={{
+            fontSize: '0.875rem',
+            color: '#6B7280',
+            margin: 0,
+            lineHeight: '1.5'
+          }}>
+            Start your 24-hour free trial. No credit card required.
+          </p>
         </div>
 
-        {/* Right Side - Form */}
-        <div style={{
-          padding: '2.5rem',
-          overflowY: 'auto',
-          maxHeight: '95vh'
-        }}>
-          <div style={{
-            marginBottom: '2rem'
-          }}>
-            <h2 style={{
-              fontSize: '1.75rem',
-              fontWeight: '700',
-              color: '#1f2937',
-              margin: '0 0 0.5rem 0'
-            }}>
-              Create Your Account
-            </h2>
-            <p style={{
-              fontSize: '0.875rem',
-              color: '#6b7280',
-              margin: 0
-            }}>
-              Fill in your details to get started
-            </p>
-          </div>
-
           {success ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0' }}>
+            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
               <div style={{
-                width: '5rem',
-                height: '5rem',
+                width: '3rem',
+                height: '3rem',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: '#10B981',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                margin: '0 auto 1.5rem',
-                boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)'
+                margin: '0 auto 1.5rem'
               }}>
-                <CheckCircle style={{ width: '3rem', height: '3rem', color: 'white' }} />
+                <CheckCircle style={{ width: '1.75rem', height: '1.75rem', color: 'white' }} />
               </div>
-              <h3 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '0.75rem', color: '#1f2937' }}>
-                Account Created Successfully! 🎉
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.5rem', color: '#111827' }}>
+                Account Created Successfully
               </h3>
-              <p style={{ color: '#6b7280', marginBottom: '1rem', fontSize: '1rem' }}>
+              <p style={{ color: '#6B7280', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
                 Your account is under review. You'll receive your tenant number shortly.
               </p>
-              <div style={{
-                padding: '1rem',
-                background: '#f0fdf4',
-                border: '1px solid #86efac',
-                borderRadius: '0.75rem',
-                marginTop: '1.5rem'
+              <p style={{
+                padding: '0.75rem',
+                background: '#F0FDF4',
+                border: '1px solid #86EFAC',
+                borderRadius: '0.5rem',
+                color: '#059669',
+                fontSize: '0.875rem',
+                margin: 0
               }}>
-                <p style={{ color: '#059669', fontWeight: '600', fontSize: '0.875rem', margin: 0 }}>
-                  ⏰ Your account will be active for 24 hours. Please submit payment proof to continue.
-                </p>
-              </div>
+                Your account will be active for 24 hours. Please submit payment proof to continue.
+              </p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {error && (
                 <div style={{
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  color: '#dc2626',
-                  padding: '1rem',
-                  borderRadius: '0.75rem',
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  color: '#DC2626',
+                  padding: '0.75rem',
+                  borderRadius: '0.5rem',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.75rem',
+                  gap: '0.5rem',
                   fontSize: '0.875rem',
-                  fontWeight: '500'
+                  marginBottom: '1rem'
                 }}>
-                  <AlertCircle style={{ width: '1.25rem', height: '1.25rem', flexShrink: 0 }} />
+                  <AlertCircle style={{ width: '1rem', height: '1rem', flexShrink: 0 }} />
                   <span>{error}</span>
                 </div>
               )}
 
-              {/* Company Information Section */}
-              <div style={{
-                padding: '1.5rem',
-                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                borderRadius: '0.75rem',
-                border: '1px solid #bae6fd'
+              {/* Company Information */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#111827',
+                  marginBottom: '0.5rem'
+                }}>
+                  Company / Workshop Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.organizationName}
+                  onChange={(e) => handleFieldChange('organizationName', e.target.value)}
+                  onBlur={(e) => handleFieldChange('organizationName', e.target.value)}
+                  placeholder="e.g., RS Car Accessories"
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.875rem',
+                    border: validationErrors.organizationName ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    transition: 'all 0.15s',
+                    outline: 'none',
+                    backgroundColor: 'white',
+                    color: '#111827'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = validationErrors.organizationName ? '#DC2626' : '#2563EB'
+                    e.target.style.boxShadow = validationErrors.organizationName 
+                      ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                      : '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = validationErrors.organizationName ? '#DC2626' : '#E5E7EB'
+                    e.target.style.boxShadow = 'none'
+                  }}
+                />
+                {validationErrors.organizationName && (
+                  <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                    {validationErrors.organizationName}
+                  </p>
+                )}
+              </div>
+
+              {/* Admin Details - Two Column Layout */}
+              <div style={{ 
+                marginBottom: '1.25rem',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '1rem'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <Briefcase style={{ width: '1.25rem', height: '1.25rem', color: '#0369a1' }} />
-                  <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#0369a1', margin: 0 }}>
-                    Company Information
-                  </h3>
-                </div>
                 <div>
                   <label style={{
                     display: 'block',
                     fontSize: '0.875rem',
-                    fontWeight: '600',
-                    color: '#374151',
+                    fontWeight: '500',
+                    color: '#111827',
                     marginBottom: '0.5rem'
                   }}>
-                    Company Name *
+                    Full Name *
                   </label>
                   <input
                     type="text"
                     required
-                    value={formData.organizationName}
-                    onChange={(e) => setFormData({ ...formData, organizationName: e.target.value })}
-                    placeholder="e.g., ABC Car Accessories"
+                    value={formData.adminName}
+                    onChange={(e) => handleFieldChange('adminName', e.target.value)}
+                    onBlur={(e) => handleFieldChange('adminName', e.target.value)}
+                    placeholder="John Doe"
                     style={{
                       width: '100%',
-                      padding: '0.875rem',
-                      border: '2px solid #d1d5db',
+                      padding: '0.625rem 0.875rem',
+                      border: validationErrors.adminName ? '1px solid #DC2626' : '1px solid #E5E7EB',
                       borderRadius: '0.5rem',
                       fontSize: '0.875rem',
-                      transition: 'all 0.2s',
-                      outline: 'none'
+                      transition: 'all 0.15s',
+                      outline: 'none',
+                      backgroundColor: 'white',
+                      color: '#111827'
                     }}
                     onFocus={(e) => {
-                      e.target.style.borderColor = '#2563eb'
-                      e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                      e.target.style.borderColor = validationErrors.adminName ? '#DC2626' : '#2563EB'
+                      e.target.style.boxShadow = validationErrors.adminName 
+                        ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                        : '0 0 0 3px rgba(37, 99, 235, 0.1)'
                     }}
                     onBlur={(e) => {
-                      e.target.style.borderColor = '#d1d5db'
+                      e.target.style.borderColor = validationErrors.adminName ? '#DC2626' : '#E5E7EB'
                       e.target.style.boxShadow = 'none'
                     }}
                   />
+                  {validationErrors.adminName && (
+                    <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                      {validationErrors.adminName}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    color: '#111827',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={formData.adminEmail}
+                    onChange={(e) => handleFieldChange('adminEmail', e.target.value)}
+                    onBlur={(e) => handleFieldChange('adminEmail', e.target.value)}
+                    placeholder="admin@company.com"
+                    style={{
+                      width: '100%',
+                      padding: '0.625rem 0.875rem',
+                      border: validationErrors.adminEmail ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                      transition: 'all 0.15s',
+                      outline: 'none',
+                      backgroundColor: 'white',
+                      color: '#111827'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = validationErrors.adminEmail ? '#DC2626' : '#2563EB'
+                      e.target.style.boxShadow = validationErrors.adminEmail 
+                        ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                        : '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = validationErrors.adminEmail ? '#DC2626' : '#E5E7EB'
+                      e.target.style.boxShadow = 'none'
+                    }}
+                  />
+                  {validationErrors.adminEmail && (
+                    <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                      {validationErrors.adminEmail}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Admin Account Section */}
-              <div style={{
-                padding: '1.5rem',
-                background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-                borderRadius: '0.75rem',
-                border: '1px solid #fcd34d'
+              {/* Phone Number - Full Width */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  color: '#111827',
+                  marginBottom: '0.5rem'
+                }}>
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={formData.adminPhone}
+                  onChange={(e) => handleFieldChange('adminPhone', e.target.value)}
+                  onBlur={(e) => handleFieldChange('adminPhone', e.target.value)}
+                  placeholder="+91 9876543210"
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.875rem',
+                    border: validationErrors.adminPhone ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    transition: 'all 0.15s',
+                    outline: 'none',
+                    backgroundColor: 'white',
+                    color: '#111827'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = validationErrors.adminPhone ? '#DC2626' : '#2563EB'
+                    e.target.style.boxShadow = validationErrors.adminPhone 
+                      ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                      : '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = validationErrors.adminPhone ? '#DC2626' : '#E5E7EB'
+                    e.target.style.boxShadow = 'none'
+                  }}
+                />
+                {validationErrors.adminPhone && (
+                  <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                    {validationErrors.adminPhone}
+                  </p>
+                )}
+              </div>
+
+              {/* Security - Two Column Layout */}
+              <div style={{ 
+                marginBottom: '1.25rem',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '1rem'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <User style={{ width: '1.25rem', height: '1.25rem', color: '#92400e' }} />
-                  <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#92400e', margin: 0 }}>
-                    Admin Account Details
-                  </h3>
-                </div>
 
-                <div style={{ display: 'grid', gap: '1rem' }}>
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      marginBottom: '0.5rem'
-                    }}>
-                      Full Name *
-                    </label>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    color: '#111827',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Password *
+                  </label>
+                  <div style={{ position: 'relative' }}>
                     <input
-                      type="text"
-                      required
-                      value={formData.adminName}
-                      onChange={(e) => setFormData({ ...formData, adminName: e.target.value })}
-                      placeholder="John Doe"
-                      style={{
-                        width: '100%',
-                        padding: '0.875rem',
-                        border: '2px solid #d1d5db',
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        transition: 'all 0.2s',
-                        outline: 'none'
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = '#2563eb'
-                        e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = '#d1d5db'
-                        e.target.style.boxShadow = 'none'
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      marginBottom: '0.5rem'
-                    }}>
-                      Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={formData.adminEmail}
-                      onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
-                      placeholder="admin@yourcompany.com"
-                      style={{
-                        width: '100%',
-                        padding: '0.875rem',
-                        border: '2px solid #d1d5db',
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        transition: 'all 0.2s',
-                        outline: 'none'
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = '#2563eb'
-                        e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = '#d1d5db'
-                        e.target.style.boxShadow = 'none'
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      marginBottom: '0.5rem'
-                    }}>
-                      Phone Number *
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      value={formData.adminPhone}
-                      onChange={(e) => setFormData({ ...formData, adminPhone: e.target.value })}
-                      placeholder="+91 9876543210"
-                      style={{
-                        width: '100%',
-                        padding: '0.875rem',
-                        border: '2px solid #d1d5db',
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
-                        transition: 'all 0.2s',
-                        outline: 'none'
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = '#2563eb'
-                        e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = '#d1d5db'
-                        e.target.style.boxShadow = 'none'
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      marginBottom: '0.5rem'
-                    }}>
-                      Password *
-                    </label>
-                    <input
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       required
                       value={formData.adminPassword}
-                      onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
-                      placeholder="At least 8 characters"
+                      onChange={(e) => handleFieldChange('adminPassword', e.target.value)}
+                      onBlur={(e) => handleFieldChange('adminPassword', e.target.value)}
+                      placeholder="Min 8 characters"
                       style={{
                         width: '100%',
-                        padding: '0.875rem',
-                        border: '2px solid #d1d5db',
+                        padding: '0.625rem 0.875rem',
+                        paddingRight: '2.5rem',
+                        border: validationErrors.adminPassword ? '1px solid #DC2626' : '1px solid #E5E7EB',
                         borderRadius: '0.5rem',
                         fontSize: '0.875rem',
-                        transition: 'all 0.2s',
-                        outline: 'none'
+                        transition: 'all 0.15s',
+                        outline: 'none',
+                        backgroundColor: 'white',
+                        color: '#111827'
                       }}
                       onFocus={(e) => {
-                        e.target.style.borderColor = '#2563eb'
-                        e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                        e.target.style.borderColor = validationErrors.adminPassword ? '#DC2626' : '#2563EB'
+                        e.target.style.boxShadow = validationErrors.adminPassword 
+                          ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                          : '0 0 0 3px rgba(37, 99, 235, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#d1d5db'
+                        e.target.style.borderColor = validationErrors.adminPassword ? '#DC2626' : '#E5E7EB'
                         e.target.style.boxShadow = 'none'
                       }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '0.5rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '0.25rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: '#6B7280'
+                      }}
+                    >
+                      {showPassword ? (
+                        <EyeOff style={{ width: '1.125rem', height: '1.125rem' }} />
+                      ) : (
+                        <Eye style={{ width: '1.125rem', height: '1.125rem' }} />
+                      )}
+                    </button>
                   </div>
+                  {validationErrors.adminPassword && (
+                    <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                      {validationErrors.adminPassword}
+                    </p>
+                  )}
+                </div>
 
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      color: '#374151',
-                      marginBottom: '0.5rem'
-                    }}>
-                      Confirm Password *
-                    </label>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    color: '#111827',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Confirm Password *
+                  </label>
+                  <div style={{ position: 'relative' }}>
                     <input
-                      type="password"
+                      type={showConfirmPassword ? 'text' : 'password'}
                       required
                       value={formData.confirmPassword}
-                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                      placeholder="Re-enter your password"
+                      onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
+                      onBlur={(e) => handleFieldChange('confirmPassword', e.target.value)}
+                      placeholder="Re-enter password"
                       style={{
                         width: '100%',
-                        padding: '0.875rem',
-                        border: '2px solid #d1d5db',
+                        padding: '0.625rem 0.875rem',
+                        paddingRight: '2.5rem',
+                        border: validationErrors.confirmPassword ? '1px solid #DC2626' : '1px solid #E5E7EB',
                         borderRadius: '0.5rem',
                         fontSize: '0.875rem',
-                        transition: 'all 0.2s',
-                        outline: 'none'
+                        transition: 'all 0.15s',
+                        outline: 'none',
+                        backgroundColor: 'white',
+                        color: '#111827'
                       }}
                       onFocus={(e) => {
-                        e.target.style.borderColor = '#2563eb'
-                        e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'
+                        e.target.style.borderColor = validationErrors.confirmPassword ? '#DC2626' : '#2563EB'
+                        e.target.style.boxShadow = validationErrors.confirmPassword 
+                          ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
+                          : '0 0 0 3px rgba(37, 99, 235, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#d1d5db'
+                        e.target.style.borderColor = validationErrors.confirmPassword ? '#DC2626' : '#E5E7EB'
                         e.target.style.boxShadow = 'none'
                       }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '0.5rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '0.25rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: '#6B7280'
+                      }}
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff style={{ width: '1.125rem', height: '1.125rem' }} />
+                      ) : (
+                        <Eye style={{ width: '1.125rem', height: '1.125rem' }} />
+                      )}
+                    </button>
                   </div>
+                  {validationErrors.confirmPassword && (
+                    <p style={{ color: '#DC2626', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: 0 }}>
+                      {validationErrors.confirmPassword}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Pricing & Info Cards */}
-              <div style={{
-                display: 'grid',
-                gap: '0.75rem'
-              }}>
-                <div style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  padding: '1rem',
-                  borderRadius: '0.75rem',
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.9, marginBottom: '0.25rem' }}>Special Launch Price</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: '700' }}>₹12,000<span style={{ fontSize: '1rem', fontWeight: '400' }}>/year</span></div>
-                  </div>
-                  <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>Just ₹1,000/month</div>
-                </div>
-                
-                <div style={{
-                  backgroundColor: '#fef3c7',
-                  border: '1px solid #fcd34d',
-                  padding: '1rem',
-                  borderRadius: '0.75rem',
-                  fontSize: '0.875rem',
-                  color: '#92400e',
+              {/* Agreements */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: '0.75rem'
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  color: '#111827'
                 }}>
-                  <Clock style={{ width: '1.25rem', height: '1.25rem', flexShrink: 0, marginTop: '0.125rem' }} />
-                  <div>
-                    <strong>24-Hour Free Trial:</strong> Your account will be active for 24 hours. Submit payment proof in settings to activate permanently.
-                  </div>
-                </div>
+                  <input
+                    type="checkbox"
+                    checked={formData.agreeToTerms}
+                    onChange={(e) => setFormData({ ...formData, agreeToTerms: e.target.checked })}
+                    required
+                    style={{
+                      marginTop: '0.125rem',
+                      width: '1rem',
+                      height: '1rem',
+                      cursor: 'pointer',
+                      accentColor: '#2563EB'
+                    }}
+                  />
+                  <span style={{ lineHeight: '1.5' }}>
+                    I agree to <a href="#" style={{ color: '#2563EB', textDecoration: 'none' }}>Terms of Service</a> and <a href="#" style={{ color: '#2563EB', textDecoration: 'none' }}>Privacy Policy</a>
+                  </span>
+                </label>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  color: '#6B7280',
+                  marginTop: '0.75rem'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.sendUpdates}
+                    onChange={(e) => setFormData({ ...formData, sendUpdates: e.target.checked })}
+                    style={{
+                      marginTop: '0.125rem',
+                      width: '1rem',
+                      height: '1rem',
+                      cursor: 'pointer',
+                      accentColor: '#2563EB'
+                    }}
+                  />
+                  <span style={{ lineHeight: '1.5' }}>
+                    Send product updates on WhatsApp/email
+                  </span>
+                </label>
               </div>
 
+              {/* CTA Button */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !isFormValid()}
                 style={{
                   width: '100%',
-                  padding: '1rem',
-                  background: loading 
-                    ? 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)' 
-                    : 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                  padding: '0.625rem 1rem',
+                  background: loading || !isFormValid() ? '#9CA3AF' : '#2563EB',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '0.75rem',
-                  fontWeight: '700',
-                  fontSize: '1rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.3s',
-                  boxShadow: loading ? 'none' : '0 10px 25px rgba(37, 99, 235, 0.3)',
+                  borderRadius: '0.5rem',
+                  fontWeight: '500',
+                  fontSize: '0.875rem',
+                  cursor: loading || !isFormValid() ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.5rem'
+                  gap: '0.5rem',
+                  marginBottom: '0.75rem'
                 }}
                 onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = '0 15px 35px rgba(37, 99, 235, 0.4)'
+                  if (!loading && isFormValid()) {
+                    e.currentTarget.style.background = '#1D4ED8'
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.transform = 'translateY(0)'
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(37, 99, 235, 0.3)'
+                  if (!loading && isFormValid()) {
+                    e.currentTarget.style.background = '#2563EB'
                   }
                 }}
               >
                 {loading ? (
                   <>
                     <div style={{
-                      width: '1.25rem',
-                      height: '1.25rem',
+                      width: '1rem',
+                      height: '1rem',
                       border: '2px solid white',
                       borderTop: '2px solid transparent',
                       borderRadius: '50%',
                       animation: 'spin 1s linear infinite'
                     }}></div>
-                    Creating Account...
+                    Creating your account...
                   </>
                 ) : (
                   <>
-                    Get Started Now
-                    <ArrowRight style={{ width: '1.25rem', height: '1.25rem' }} />
+                    Create Account
+                    <ArrowRight style={{ width: '1rem', height: '1rem' }} />
                   </>
                 )}
               </button>
 
+              {/* Footer Text */}
               <p style={{
                 fontSize: '0.75rem',
-                color: '#9ca3af',
+                color: '#6B7280',
+                textAlign: 'center',
+                margin: '0 0 1rem 0'
+              }}>
+                24-hour free trial • No credit card required
+              </p>
+
+              {/* Footer Links */}
+              <p style={{
+                fontSize: '0.875rem',
+                color: '#6B7280',
                 textAlign: 'center',
                 margin: 0
               }}>
-                By creating an account, you agree to our Terms of Service and Privacy Policy
+                Already have an account?{' '}
+                <a href="/login" style={{ color: '#2563EB', textDecoration: 'none', fontWeight: '500' }}>
+                  Login
+                </a>
               </p>
             </form>
           )}
-        </div>
       </div>
     </div>
   )
