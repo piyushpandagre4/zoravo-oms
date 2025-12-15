@@ -66,6 +66,7 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
           id,
           is_active,
           subscription_status,
+          trial_ends_at,
           subscriptions(status, billing_period_end)
         `)
         .eq('id', tenantId)
@@ -89,6 +90,14 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
       const subscription = tenantData.subscriptions?.[0] || null
       const subscriptionEndDate = subscription?.billing_period_end || null
       
+      // Check if trial has expired
+      let trialExpired = false
+      if (tenantData.trial_ends_at) {
+        const now = new Date().getTime()
+        const trialEnd = new Date(tenantData.trial_ends_at).getTime()
+        trialExpired = trialEnd < now
+      }
+      
       let isExpired = false
       let daysRemaining: number | null = null
 
@@ -100,9 +109,15 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
         isExpired = daysRemaining < 0
       } else {
         // No subscription: 
-        // - If tenant is active, treat as active (legacy tenant or manually activated)
+        // - Check if trial expired (if in trial status)
+        // - If tenant is in trial and trial expired, treat as expired
+        // - If tenant is active and not in trial, treat as active (legacy tenant or manually activated)
         // - If tenant is inactive, treat as expired
-        isExpired = !tenantData.is_active
+        if (tenantData.subscription_status === 'trial' && trialExpired) {
+          isExpired = true
+        } else {
+          isExpired = !tenantData.is_active
+        }
       }
 
       // Check if tenant is inactive
@@ -110,11 +125,14 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
       
       // Tenant is active if:
       // 1. Tenant is_active = true AND
-      // 2. (No subscription exists OR subscription not expired)
-      // If subscription expired, tenant should be inactive
+      // 2. (No subscription exists OR subscription not expired) AND
+      // 3. (Not in trial OR trial not expired)
+      // If subscription expired or trial expired, tenant should be inactive
       // Note: Even admins should see the blur screen when tenant is inactive
       // Admins can still access Settings to submit payment proof
-      const isActive = tenantData.is_active && (!subscriptionEndDate || !isExpired)
+      const isActive = tenantData.is_active && 
+                       (!subscriptionEndDate || !isExpired) &&
+                       (tenantData.subscription_status !== 'trial' || !trialExpired)
 
       setSubscriptionStatus({
         isActive,
@@ -211,7 +229,11 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
               color: '#1f2937',
               marginBottom: '1rem'
             }}>
-              {subscriptionStatus?.tenantInactive ? 'Account Inactive' : 'Subscription Expired'}
+              {subscriptionStatus?.tenantInactive 
+                ? 'Account Inactive' 
+                : subscriptionStatus?.isExpired 
+                  ? 'Trial Period Expired' 
+                  : 'Subscription Expired'}
             </h2>
             <p style={{
               fontSize: '1rem',
@@ -221,7 +243,9 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
             }}>
               {subscriptionStatus?.tenantInactive 
                 ? 'Your account has been deactivated. Please contact your administrator or submit payment proof in Settings to reactivate your account.'
-                : 'Your subscription has expired. Please submit payment proof in Settings to continue using the service.'
+                : subscriptionStatus?.isExpired && !subscriptionStatus?.subscriptionEndDate
+                  ? 'Your trial period has expired. Please submit payment proof in Settings to continue using the service.'
+                  : 'Your subscription has expired. Please submit payment proof in Settings to continue using the service.'
               }
             </p>
             {subscriptionStatus && subscriptionStatus.daysRemaining !== null && subscriptionStatus.daysRemaining < 0 && (

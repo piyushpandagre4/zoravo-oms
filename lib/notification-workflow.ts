@@ -23,19 +23,56 @@ class NotificationWorkflowService {
   private supabase = createClient()
 
   /**
-   * Get notification preferences for a role
+   * Get notification preferences for a role, filtered by tenant
    */
-  async getPreferencesForRole(role: 'installer' | 'coordinator' | 'accountant' | 'manager'): Promise<NotificationPreferences[]> {
+  async getPreferencesForRole(
+    role: 'installer' | 'coordinator' | 'accountant' | 'manager',
+    tenantId?: string | null
+  ): Promise<NotificationPreferences[]> {
     try {
-      // First, try to get from notification_preferences table
-      const { data: preferences, error } = await this.supabase
+      // If tenantId is provided, first get all users from that tenant with the specified role
+      let userIds: string[] = []
+      
+      if (tenantId) {
+        const { data: tenantUsers, error: tenantUsersError } = await this.supabase
+          .from('tenant_users')
+          .select('user_id')
+          .eq('tenant_id', tenantId)
+          .eq('role', role)
+
+        if (tenantUsersError) {
+          console.error('[Notification] Error fetching tenant users:', tenantUsersError)
+          return []
+        }
+
+        userIds = (tenantUsers || []).map((tu: any) => tu.user_id)
+        
+        if (userIds.length === 0) {
+          console.log(`[Notification] No users found for role ${role} in tenant ${tenantId}`)
+          return []
+        }
+        
+        console.log(`[Notification] Found ${userIds.length} users for role ${role} in tenant ${tenantId}`)
+      } else {
+        console.warn('[Notification] No tenantId provided, fetching preferences for all tenants')
+      }
+
+      // Get notification preferences for the role
+      let query = this.supabase
         .from('notification_preferences')
         .select('*')
         .eq('role', role)
         .eq('whatsapp_enabled', true)
 
+      // Filter by user_ids if tenantId is provided
+      if (tenantId && userIds.length > 0) {
+        query = query.in('user_id', userIds)
+      }
+
+      const { data: preferences, error } = await query
+
       if (!error && preferences && preferences.length > 0) {
-        return preferences.map((p: any) => ({
+        const mappedPreferences = preferences.map((p: any) => ({
           userId: p.user_id,
           role: p.role,
           whatsappEnabled: p.whatsapp_enabled,
@@ -47,13 +84,23 @@ class NotificationWorkflowService {
           notifyOnAccountantComplete: p.notify_on_accountant_complete,
           notifyOnVehicleDelivered: p.notify_on_vehicle_delivered,
         }))
+        
+        console.log(`[Notification] Found ${mappedPreferences.length} notification preferences for role ${role}${tenantId ? ` in tenant ${tenantId}` : ''}`)
+        return mappedPreferences
       }
 
-      // Fallback: get phone numbers from profiles table
-      const { data: profiles, error: profileError } = await this.supabase
+      // Fallback: get phone numbers from profiles table, filtered by tenant
+      let profileQuery = this.supabase
         .from('profiles')
         .select('id, name, phone, role')
         .eq('role', role)
+
+      // Filter by user_ids if tenantId is provided
+      if (tenantId && userIds.length > 0) {
+        profileQuery = profileQuery.in('id', userIds)
+      }
+
+      const { data: profiles, error: profileError } = await profileQuery
 
       if (profileError) throw profileError
 
@@ -91,16 +138,25 @@ class NotificationWorkflowService {
    * Send notification when vehicle inward is created
    */
   async notifyVehicleCreated(vehicleId: string, vehicleData: any): Promise<void> {
-    if (!(await this.isWhatsAppEnabled())) {
-      console.log('[Notification] WhatsApp notifications disabled, skipping')
-      return
+    console.log('[Notification] notifyVehicleCreated called', { vehicleId, tenantId: vehicleData.tenant_id })
+    
+    // Get tenant_id from vehicle data or try to get from current context
+    const tenantId = vehicleData.tenant_id || null
+    
+    if (!tenantId) {
+      console.warn('[Notification] No tenant_id found in vehicle data, notifications may not work correctly')
     }
 
-    // Load WhatsApp config
-    const config = await whatsappService.loadConfig(this.supabase)
-    if (config) {
-      await whatsappService.initialize(config)
+    // Check if WhatsApp is enabled (with tenant context)
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
+    if (!config || !config.enabled) {
+      console.log('[Notification] WhatsApp notifications disabled or config not found, skipping')
+      return
     }
+    
+    // Initialize WhatsApp service
+    await whatsappService.initialize(config)
+    console.log('[Notification] WhatsApp service initialized')
 
     const event: WorkflowEvent = {
       type: 'vehicle_inward_created',
@@ -111,32 +167,100 @@ class NotificationWorkflowService {
       triggeredByRole: 'coordinator',
     }
 
-    // Notify installers, managers, and accountants
-    const installers = await this.getPreferencesForRole('installer')
-    const managers = await this.getPreferencesForRole('manager')
-    const accountants = await this.getPreferencesForRole('accountant')
+    // Notify installers, managers, and accountants - filtered by tenant
+    console.log('[Notification] Fetching preferences for roles: installer, manager, accountant')
+    const installers = await this.getPreferencesForRole('installer', tenantId)
+    const managers = await this.getPreferencesForRole('manager', tenantId)
+    const accountants = await this.getPreferencesForRole('accountant', tenantId)
+
+    console.log('[Notification] Preferences fetched:', {
+      installers: installers.length,
+      managers: managers.length,
+      accountants: accountants.length
+    })
+
+    // Log detailed preference info
+    console.log('[Notification] Installer preferences:', installers.map(p => ({
+      userId: p.userId,
+      phone: p.phoneNumber,
+      notifyOnVehicleCreated: p.notifyOnVehicleCreated,
+      whatsappEnabled: p.whatsappEnabled
+    })))
+    console.log('[Notification] Manager preferences:', managers.map(p => ({
+      userId: p.userId,
+      phone: p.phoneNumber,
+      notifyOnVehicleCreated: p.notifyOnVehicleCreated,
+      whatsappEnabled: p.whatsappEnabled
+    })))
+    console.log('[Notification] Accountant preferences:', accountants.map(p => ({
+      userId: p.userId,
+      phone: p.phoneNumber,
+      notifyOnVehicleCreated: p.notifyOnVehicleCreated,
+      whatsappEnabled: p.whatsappEnabled
+    })))
+
+    // Get user names for better logging
+    const allUserIds = [
+      ...installers.map(p => p.userId),
+      ...managers.map(p => p.userId),
+      ...accountants.map(p => p.userId)
+    ]
+    
+    let userNamesMap: Map<string, string> = new Map()
+    if (allUserIds.length > 0) {
+      const { data: profiles } = await this.supabase
+        .from('profiles')
+        .select('id, name')
+        .in('id', allUserIds)
+      
+      if (profiles) {
+        profiles.forEach((p: any) => {
+          userNamesMap.set(p.id, p.name || 'Unknown')
+        })
+      }
+    }
 
     const recipients: NotificationRecipient[] = [
       ...installers.filter(p => p.notifyOnVehicleCreated && p.phoneNumber).map(p => ({
         userId: p.userId,
         role: p.role as any,
         phoneNumber: p.phoneNumber!,
+        name: userNamesMap.get(p.userId) || 'Unknown',
       })),
       ...managers.filter(p => p.notifyOnVehicleCreated && p.phoneNumber).map(p => ({
         userId: p.userId,
         role: p.role as any,
         phoneNumber: p.phoneNumber!,
+        name: userNamesMap.get(p.userId) || 'Unknown',
       })),
       ...accountants.filter(p => p.notifyOnVehicleCreated && p.phoneNumber).map(p => ({
         userId: p.userId,
         role: p.role as any,
         phoneNumber: p.phoneNumber!,
+        name: userNamesMap.get(p.userId) || 'Unknown',
       })),
     ]
 
-    if (recipients.length > 0) {
-      await whatsappService.sendWorkflowNotification(event, recipients, this.supabase)
+    console.log('[Notification] Filtered recipients:', {
+      total: recipients.length,
+      installers: recipients.filter(r => r.role === 'installer').length,
+      managers: recipients.filter(r => r.role === 'manager').length,
+      accountants: recipients.filter(r => r.role === 'accountant').length,
+      phoneNumbers: recipients.map(r => r.phoneNumber)
+    })
+
+    if (recipients.length === 0) {
+      console.warn('[Notification] No recipients found. Check notification preferences:')
+      console.warn('  - Are users enabled for WhatsApp notifications?')
+      console.warn('  - Do users have phone numbers?')
+      console.warn('  - Is "Vehicle Created" notification enabled for users?')
+      console.warn('  - Are users in the correct tenant?')
+      return
     }
+
+    console.log('[Notification] Sending notifications to', recipients.length, 'recipients')
+    const result = await whatsappService.sendWorkflowNotification(event, recipients, this.supabase)
+    console.log('[Notification] Notification result:', result)
   }
 
   /**
@@ -148,8 +272,11 @@ class NotificationWorkflowService {
       return
     }
 
-    // Load WhatsApp config
-    const config = await whatsappService.loadConfig(this.supabase)
+    // Get tenant_id from vehicle data
+    const tenantId = vehicleData.tenant_id || null
+
+    // Load WhatsApp config with tenant context
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
     if (config) {
       await whatsappService.initialize(config)
     }
@@ -162,9 +289,9 @@ class NotificationWorkflowService {
       status: 'installation_complete',
     }
 
-    // Notify managers and accountants
-    const managers = await this.getPreferencesForRole('manager')
-    const accountants = await this.getPreferencesForRole('accountant')
+    // Notify managers and accountants - filtered by tenant
+    const managers = await this.getPreferencesForRole('manager', tenantId)
+    const accountants = await this.getPreferencesForRole('accountant', tenantId)
 
     const recipients: NotificationRecipient[] = [
       ...managers.filter(p => p.notifyOnInstallationComplete && p.phoneNumber).map(p => ({
@@ -193,8 +320,11 @@ class NotificationWorkflowService {
       return
     }
 
-    // Load WhatsApp config
-    const config = await whatsappService.loadConfig(this.supabase)
+    // Get tenant_id from vehicle data
+    const tenantId = vehicleData.tenant_id || null
+
+    // Load WhatsApp config with tenant context
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
     if (config) {
       await whatsappService.initialize(config)
     }
@@ -207,8 +337,8 @@ class NotificationWorkflowService {
       triggeredByRole: 'accountant',
     }
 
-    // Notify managers
-    const managers = await this.getPreferencesForRole('manager')
+    // Notify managers - filtered by tenant
+    const managers = await this.getPreferencesForRole('manager', tenantId)
 
     const recipients: NotificationRecipient[] = managers
       .filter(p => p.notifyOnInvoiceAdded && p.phoneNumber)
@@ -232,8 +362,11 @@ class NotificationWorkflowService {
       return
     }
 
-    // Load WhatsApp config
-    const config = await whatsappService.loadConfig(this.supabase)
+    // Get tenant_id from vehicle data
+    const tenantId = vehicleData.tenant_id || null
+
+    // Load WhatsApp config with tenant context
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
     if (config) {
       await whatsappService.initialize(config)
     }
@@ -247,9 +380,9 @@ class NotificationWorkflowService {
       triggeredByRole: 'accountant',
     }
 
-    // Notify coordinators and managers
-    const coordinators = await this.getPreferencesForRole('coordinator')
-    const managers = await this.getPreferencesForRole('manager')
+    // Notify coordinators and managers - filtered by tenant
+    const coordinators = await this.getPreferencesForRole('coordinator', tenantId)
+    const managers = await this.getPreferencesForRole('manager', tenantId)
 
     const recipients: NotificationRecipient[] = [
       ...coordinators.filter(p => p.notifyOnAccountantComplete && p.phoneNumber).map(p => ({
@@ -278,8 +411,11 @@ class NotificationWorkflowService {
       return
     }
 
-    // Load WhatsApp config
-    const config = await whatsappService.loadConfig(this.supabase)
+    // Get tenant_id from vehicle data
+    const tenantId = vehicleData.tenant_id || null
+
+    // Load WhatsApp config with tenant context
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
     if (config) {
       await whatsappService.initialize(config)
     }
@@ -293,9 +429,9 @@ class NotificationWorkflowService {
       triggeredByRole: 'coordinator',
     }
 
-    // Notify managers and accountants
-    const managers = await this.getPreferencesForRole('manager')
-    const accountants = await this.getPreferencesForRole('accountant')
+    // Notify managers and accountants - filtered by tenant
+    const managers = await this.getPreferencesForRole('manager', tenantId)
+    const accountants = await this.getPreferencesForRole('accountant', tenantId)
 
     const recipients: NotificationRecipient[] = [
       ...managers.filter(p => p.notifyOnVehicleDelivered && p.phoneNumber).map(p => ({

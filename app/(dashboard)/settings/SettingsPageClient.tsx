@@ -583,6 +583,7 @@ export default function SettingsPageClient() {
     try {
       const isSuper = isSuperAdmin()
       let tenantId: string | null = null
+      let userRoleFromDb: string | null = null
       
       console.log('🔍 Fetching managers...', { isSuper, sessionStorage_tenant: sessionStorage.getItem('current_tenant_id') })
       
@@ -596,21 +597,47 @@ export default function SettingsPageClient() {
           return
         }
         
-        // Get the actual tenant_id from database for current user (as admin)
-        const { data: tenantUser, error: tenantUserError } = await supabase
+        // Get the actual tenant_id from database for current user (any role)
+        // First try to get from sessionStorage, then verify with database
+        const sessionTenantId = sessionStorage.getItem('current_tenant_id')
+        
+        // Get tenant_id from database - check any role, not just admin
+        const { data: tenantUsers, error: tenantUsersError } = await supabase
           .from('tenant_users')
           .select('tenant_id, role')
           .eq('user_id', user.id)
-          .eq('role', 'admin')
-          .single()
         
-        if (tenantUserError || !tenantUser) {
-          console.error('❌ Could not find tenant_id for current admin user:', tenantUserError)
+        if (tenantUsersError) {
+          console.error('❌ Error fetching tenant_users:', tenantUsersError)
           setManagers([])
           return
         }
         
-        tenantId = tenantUser.tenant_id
+        if (!tenantUsers || tenantUsers.length === 0) {
+          console.error('❌ No tenant_users found for current user')
+          setManagers([])
+          return
+        }
+        
+        // If user has multiple tenants, prefer the one in sessionStorage, otherwise use the first one
+        let selectedTenantUser = tenantUsers[0]
+        if (sessionTenantId) {
+          const matchingTenant = tenantUsers.find(tu => tu.tenant_id === sessionTenantId)
+          if (matchingTenant) {
+            selectedTenantUser = matchingTenant
+          }
+        }
+        
+        tenantId = selectedTenantUser.tenant_id
+        userRoleFromDb = selectedTenantUser.role
+        
+        // Only fetch managers if user is admin or super admin
+        // Non-admin users don't need to see managers
+        if (userRoleFromDb !== 'admin') {
+          console.log('⏭️ Skipping fetchManagers - user is not admin (role:', userRoleFromDb, ')')
+          setManagers([])
+          return
+        }
         
         // Update sessionStorage with the correct tenant_id
         if (sessionStorage.getItem('current_tenant_id') !== tenantId) {
@@ -621,7 +648,7 @@ export default function SettingsPageClient() {
           sessionStorage.setItem('current_tenant_id', tenantId)
         }
         
-        console.log('✅ Using verified tenant_id from database:', tenantId)
+        console.log('✅ Using verified tenant_id from database:', tenantId, 'Role:', userRoleFromDb)
       }
       
       if (!isSuper && !tenantId) {

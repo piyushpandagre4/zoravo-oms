@@ -26,13 +26,15 @@ export async function POST(request: NextRequest) {
     const supabase = createAdminClient()
     const now = new Date()
 
-    // Get all tenants with subscriptions
+    // Get all tenants with subscriptions and trial info
     const { data: tenants, error: tenantsError } = await supabase
       .from('tenants')
       .select(`
         id,
         name,
         is_active,
+        subscription_status,
+        trial_ends_at,
         subscriptions(id, status, billing_period_end)
       `)
 
@@ -55,17 +57,34 @@ export async function POST(request: NextRequest) {
     for (const tenant of tenants) {
       try {
         const subscription = tenant.subscriptions?.[0] || null
+        let shouldDeactivate = false
+        let deactivationReason = ''
         
-        // Skip if no subscription (legacy tenants or free tier)
-        if (!subscription || !subscription.billing_period_end) {
-          continue
+        // Check subscription expiration
+        if (subscription && subscription.billing_period_end) {
+          const endDate = new Date(subscription.billing_period_end)
+          const isExpired = endDate < now
+          
+          if (isExpired && tenant.is_active) {
+            shouldDeactivate = true
+            deactivationReason = 'subscription expired'
+          }
+        }
+        
+        // Check trial expiration (if no active subscription)
+        // Only check trial if tenant is in trial status and has no active subscription
+        if (!shouldDeactivate && tenant.subscription_status === 'trial' && tenant.trial_ends_at) {
+          const trialEndDate = new Date(tenant.trial_ends_at)
+          const trialExpired = trialEndDate < now
+          
+          if (trialExpired && tenant.is_active) {
+            shouldDeactivate = true
+            deactivationReason = 'trial period expired'
+          }
         }
 
-        const endDate = new Date(subscription.billing_period_end)
-        const isExpired = endDate < now
-
-        // If subscription expired and tenant is still active, deactivate it
-        if (isExpired && tenant.is_active) {
+        // Deactivate tenant if needed
+        if (shouldDeactivate) {
           const { error: updateError } = await supabase
             .from('tenants')
             .update({
@@ -81,7 +100,7 @@ export async function POST(request: NextRequest) {
             errors.push(errorMsg)
           } else {
             deactivatedCount++
-            console.log(`✅ Tenant ${tenant.name} (${tenant.id}) deactivated - subscription expired`)
+            console.log(`✅ Tenant ${tenant.name} (${tenant.id}) deactivated - ${deactivationReason}`)
           }
         }
       } catch (error: any) {
