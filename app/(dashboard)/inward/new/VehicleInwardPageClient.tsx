@@ -287,11 +287,57 @@ export default function VehicleInwardPageClient() {
         ? JSON.stringify(products.filter(p => p.product.trim()))
         : null
 
-      const tenantId = getCurrentTenantId()
+      // Get tenant_id - try sessionStorage first, then fetch from database if missing
+      let tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      // If tenant_id is missing and user is not super admin, fetch it from database
+      if (!isSuper && !tenantId) {
+        console.warn('⚠️ tenant_id not found in sessionStorage, fetching from database...')
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: tenantUser, error: tenantUserError } = await supabase
+            .from('tenant_users')
+            .select('tenant_id')
+            .eq('user_id', user.id)
+            .single()
+          
+          if (tenantUserError || !tenantUser) {
+            console.error('❌ Could not find tenant_id for current user:', tenantUserError)
+            alert('Error: Could not determine your organization. Please refresh the page and try again.')
+            return
+          }
+          
+          tenantId = tenantUser.tenant_id
+          console.log('✅ Fetched tenant_id from database:', tenantId)
+        } else {
+          console.error('❌ No authenticated user found')
+          alert('Error: You must be logged in to create a vehicle entry.')
+          return
+        }
+      }
+      
+      if (!tenantId && !isSuper) {
+        console.error('❌ tenant_id is still missing after database fetch')
+        alert('Error: Could not determine your organization. Please refresh the page and try again.')
+        return
+      }
+      
+      // Format phone number with +91 prefix if not already present
+      let formattedPhone = formData.mobileNumber.trim()
+      if (formattedPhone && !formattedPhone.startsWith('+')) {
+        // If it's just digits, add +91 prefix
+        if (/^\d{10}$/.test(formattedPhone)) {
+          formattedPhone = '+91' + formattedPhone
+        } else if (/^\d+$/.test(formattedPhone)) {
+          // If it's digits but not exactly 10, still add +91
+          formattedPhone = '+91' + formattedPhone
+        }
+      }
       
       const payload = {
         customer_name: formData.ownerName,
-        customer_phone: formData.mobileNumber,
+        customer_phone: formattedPhone,
         customer_email: formData.email || null,
         registration_number: formData.vehicleNumber,
         model: formData.modelName,
@@ -312,6 +358,9 @@ export default function VehicleInwardPageClient() {
         // Note: inward_datetime removed - created_at is automatically set by the database
       }
 
+      // Performance monitoring: Track submission time
+      const submissionStartTime = performance.now()
+      
       const { data, error } = await supabase
         .from('vehicle_inward')
         .insert([payload])
@@ -323,13 +372,96 @@ export default function VehicleInwardPageClient() {
         throw error
       }
       
-      // Send WhatsApp notification
+      // Performance monitoring: Log submission time
+      const submissionEndTime = performance.now()
+      const submissionTime = submissionEndTime - submissionStartTime
+      console.log(`[Performance] Vehicle inward saved in ${submissionTime.toFixed(2)}ms`)
+      
+      // Enqueue notification for async processing (non-blocking, instant)
+      // This just inserts into notification_queue - background worker will process it
       try {
-        const { notificationWorkflow } = await import('@/lib/notification-workflow')
-        await notificationWorkflow.notifyVehicleCreated(data.id, { ...payload, id: data.id })
-      } catch (notifError) {
-        console.error('Error sending notification:', notifError)
-        // Don't block success if notification fails
+        // Ensure we have tenant_id - fetch from database if missing
+        let finalTenantId = tenantId
+        if (!finalTenantId && !isSuper) {
+          // Fetch the created vehicle to get tenant_id (in case it was set by database)
+          const { data: vehicleData } = await supabase
+            .from('vehicle_inward')
+            .select('tenant_id')
+            .eq('id', data.id)
+            .single()
+          
+          if (vehicleData?.tenant_id) {
+            finalTenantId = vehicleData.tenant_id
+            console.log('[NotificationQueue] ✅ Fetched tenant_id from created vehicle:', finalTenantId)
+          } else {
+            // Last resort: fetch from current user
+            const { data: { user } } = await supabase.auth.getUser()
+            if (user) {
+              const { data: tenantUser } = await supabase
+                .from('tenant_users')
+                .select('tenant_id')
+                .eq('user_id', user.id)
+                .single()
+              if (tenantUser) {
+                finalTenantId = tenantUser.tenant_id
+                console.log('[NotificationQueue] ✅ Fetched tenant_id from current user:', finalTenantId)
+              }
+            }
+          }
+        }
+
+        if (!finalTenantId) {
+          console.error('[NotificationQueue] ❌ Cannot enqueue notification: tenant_id is missing', {
+            vehicleId: data.id,
+            originalTenantId: tenantId,
+            isSuper
+          })
+        } else {
+          const { notificationQueue } = await import('@/lib/notification-queue')
+          // Ensure tenant_id is in the vehicle data
+          const vehicleDataForNotification = { ...payload, id: data.id, tenant_id: finalTenantId }
+          console.log('[NotificationQueue] Enqueueing with tenant_id:', {
+            tenantId: finalTenantId,
+            vehicleId: data.id
+          })
+          
+          const enqueueResult = await notificationQueue.enqueueVehicleCreated(data.id, vehicleDataForNotification)
+          
+          if (enqueueResult.success) {
+            console.log('[NotificationQueue] ✅ Notification enqueued successfully:', {
+              queueId: enqueueResult.queueId,
+              vehicleId: data.id,
+              tenantId: finalTenantId
+            })
+            
+            // Trigger immediate processing (fire-and-forget, don't block user)
+            // This ensures messages are sent within seconds instead of waiting for cron
+            fetch('/api/cron/process-notifications?immediate=true', {
+              method: 'GET',
+            }).catch((error) => {
+              // Silently fail - cron will process within 2 minutes anyway
+              console.warn('[NotificationQueue] ⚠️ Immediate trigger failed (cron will process):', error.message)
+            })
+          } else {
+            console.error('[NotificationQueue] ❌ Failed to enqueue notification:', {
+              error: enqueueResult.error,
+              vehicleId: data.id,
+              tenantId: finalTenantId
+            })
+            // Show non-blocking warning - notification will be retried by background worker
+            // Don't block user success message
+            setTimeout(() => {
+              console.warn('[NotificationQueue] ⚠️ Notification was not enqueued. It will be retried automatically.')
+            }, 1000)
+          }
+        }
+      } catch (error: any) {
+        // Silently fail - notification errors shouldn't affect user experience
+        console.error('[NotificationQueue] ❌ Exception enqueueing notification:', {
+          error: error.message,
+          stack: error.stack,
+          vehicleId: data.id
+        })
       }
       
       alert('Vehicle inward submitted successfully!')
@@ -467,23 +599,38 @@ export default function VehicleInwardPageClient() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                  Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                  Mobile Number <span style={{ color: '#ef4444' }}>*</span> <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 'normal' }}>(+91)</span>
                 </label>
-                <input
-                  type="tel"
-                  value={formData.mobileNumber}
-                  onChange={(e) => handleInputChange('mobileNumber', e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="Enter mobile number"
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ 
+                    padding: '0.625rem 0.875rem', 
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: '0.5rem 0 0 0.5rem',
+                    backgroundColor: '#f9fafb',
                     fontSize: '0.875rem',
-                    outline: 'none'
-                  }}
-                />
+                    color: '#6b7280',
+                    borderRight: 'none'
+                  }}>+91</span>
+                  <input
+                    type="tel"
+                    value={formData.mobileNumber}
+                    onChange={(e) => {
+                      // Only allow digits, max 10 digits
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+                      handleInputChange('mobileNumber', digits)
+                    }}
+                    placeholder="9876543210"
+                    required
+                    style={{
+                      flex: 1,
+                      padding: '0.625rem 0.875rem',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '0 0.5rem 0.5rem 0',
+                      fontSize: '0.875rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>

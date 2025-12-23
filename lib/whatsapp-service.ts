@@ -63,7 +63,62 @@ export interface WorkflowEvent {
 
 class WhatsAppService {
   private config: WhatsAppConfig | null = null
-  private templates: Map<string, string> = new Map()
+  // Tenant-specific template cache: Map<tenantId, Map<eventType, template>>
+  private templatesCache: Map<string, Map<string, string>> = new Map()
+  // Cache timestamps per tenant: Map<tenantId, timestamp>
+  private templatesCacheTime: Map<string, number> = new Map()
+  private readonly TEMPLATES_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+  /**
+   * Get absolute URL for API routes
+   * Works in both client-side and server-side contexts
+   */
+  private getApiUrl(path: string): string {
+    // If running server-side, we need an absolute URL
+    if (typeof window === 'undefined') {
+      // Use environment variable if available, otherwise default to localhost for dev
+      let baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+      
+      // If VERCEL_URL is set, construct the full URL (VERCEL_URL doesn't include protocol)
+      if (!baseUrl && process.env.VERCEL_URL) {
+        baseUrl = `https://${process.env.VERCEL_URL}`
+      }
+      
+      // Fallback to localhost for local development
+      if (!baseUrl) {
+        baseUrl = process.env.NODE_ENV === 'production' 
+          ? 'https://your-domain.com' 
+          : 'http://localhost:3000'
+      }
+      
+      return `${baseUrl}${path}`
+    }
+    // Client-side can use relative URLs
+    return path
+  }
+
+  /**
+   * Helper function to add timeout to fetch requests
+   */
+  private async fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 5000): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      return response
+    } catch (error: any) {
+      clearTimeout(timeoutId)
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`)
+      }
+      throw error
+    }
+  }
 
   /**
    * Initialize WhatsApp service with configuration
@@ -176,27 +231,86 @@ class WhatsAppService {
   }
 
   /**
-   * Load message templates from database
+   * Load message templates from database, filtered by tenant
+   * Returns tenant-specific templates if available, otherwise global templates
+   * Uses tenant-specific caching to avoid repeated database queries
    */
-  async loadMessageTemplates(supabase: any): Promise<Map<string, string>> {
+  async loadMessageTemplates(supabase: any, tenantId?: string | null): Promise<Map<string, string>> {
     try {
-      const { data, error } = await supabase
-        .from('message_templates')
-        .select('*')
+      // Use 'global' as cache key if no tenantId
+      const cacheKey = tenantId || 'global'
+      const now = Date.now()
       
-      if (error) throw error
+      // Check tenant-specific cache first (5-minute TTL)
+      const cachedTemplates = this.templatesCache.get(cacheKey)
+      const cacheTime = this.templatesCacheTime.get(cacheKey)
       
-      const templates = new Map<string, string>()
-      if (data && data.length > 0) {
-        data.forEach((template: any) => {
-          templates.set(template.event_type, template.template)
-        })
+      if (cachedTemplates && cacheTime && (now - cacheTime) < this.TEMPLATES_CACHE_TTL) {
+        console.log(`[WhatsApp] Using cached templates for tenant: ${cacheKey}`)
+        return cachedTemplates
       }
+
+      const templates = new Map<string, string>()
+      
+      // Load tenant-specific and global templates in parallel
+      const queries = []
+      
+      if (tenantId) {
+        queries.push(
+          supabase
+            .from('message_templates')
+            .select('*')
+            .eq('tenant_id', tenantId)
+        )
+      }
+      
+      queries.push(
+        supabase
+          .from('message_templates')
+          .select('*')
+          .is('tenant_id', null)
+      )
+      
+      const results = await Promise.all(queries)
+      
+      // Process tenant-specific templates first
+      if (tenantId && results[0]) {
+        const { data: tenantTemplates, error: tenantError } = results[0]
+        if (!tenantError && tenantTemplates) {
+          console.log(`[WhatsApp] Loaded ${tenantTemplates.length} tenant-specific templates for tenant: ${tenantId}`)
+          tenantTemplates.forEach((template: any) => {
+            templates.set(template.event_type, template.template)
+          })
+        }
+      }
+      
+      // Process global templates (fallback)
+      const globalIndex = tenantId ? 1 : 0
+      if (results[globalIndex]) {
+        const { data: globalTemplates, error: globalError } = results[globalIndex]
+        if (!globalError && globalTemplates) {
+          console.log(`[WhatsApp] Loaded ${globalTemplates.length} global templates as fallback`)
+          globalTemplates.forEach((template: any) => {
+            if (!templates.has(template.event_type)) {
+              templates.set(template.event_type, template.template)
+            }
+          })
+        }
+      }
+      
+      // Update tenant-specific cache
+      this.templatesCache.set(cacheKey, templates)
+      this.templatesCacheTime.set(cacheKey, now)
+      
+      console.log(`[WhatsApp] Cached templates for tenant: ${cacheKey} (${templates.size} templates)`)
       
       return templates
     } catch (error) {
-      console.error('Error loading message templates:', error)
-      return new Map()
+      console.error('[WhatsApp] Error loading message templates:', error)
+      // Return cached templates for this tenant if available, otherwise empty map
+      const cacheKey = tenantId || 'global'
+      const cachedTemplates = this.templatesCache.get(cacheKey)
+      return cachedTemplates || new Map()
     }
   }
 
@@ -258,7 +372,8 @@ class WhatsAppService {
     }
 
     try {
-      const response = await fetch('/api/whatsapp/send', {
+      const apiUrl = this.getApiUrl('/api/whatsapp/send')
+      const response = await this.fetchWithTimeout(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -296,7 +411,8 @@ class WhatsAppService {
     }
 
     try {
-      const response = await fetch('/api/whatsapp/send', {
+      const apiUrl = this.getApiUrl('/api/whatsapp/send')
+      const response = await this.fetchWithTimeout(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -311,7 +427,7 @@ class WhatsAppService {
           to: message.to,
           message: message.message,
         }),
-      })
+      }, 5000)
 
       const result = await response.json()
       if (!response.ok || !result.success) {
@@ -358,7 +474,8 @@ class WhatsAppService {
 
   /**
    * Send via MessageAutoSender API
-   * Uses Next.js API route to avoid CORS issues
+   * - Server-side: Calls MessageAutoSender API directly (no auth needed)
+   * - Client-side: Uses Next.js API route to avoid CORS issues
    * Supports text messages and document attachments
    */
   private async sendViaMessageAutoSender(message: NotificationMessage): Promise<{ success: boolean; error?: string }> {
@@ -366,12 +483,21 @@ class WhatsAppService {
       return { success: false, error: 'MessageAutoSender configuration is incomplete' }
     }
 
+    const isServerSide = typeof window === 'undefined'
+
+    // If running server-side (background worker), call MessageAutoSender API directly
+    if (isServerSide) {
+      return await this.sendDirectlyToMessageAutoSender(message)
+    }
+
+    // If running client-side, use Next.js API route (for authentication and CORS)
     try {
-      // Use Next.js API route to proxy the request (avoids CORS issues)
-      const apiUrl = '/api/whatsapp/send'
+      const apiUrl = this.getApiUrl('/api/whatsapp/send')
       
-      // Normalize phone number - ensure it has country code
-      const phoneNumber = this.normalizePhoneNumber(message.to)
+      console.log('[WhatsApp] Sending via MessageAutoSender (client-side):', {
+        apiUrl,
+        to: message.to
+      })
       
       const requestBody: any = {
         provider: 'messageautosender',
@@ -381,22 +507,21 @@ class WhatsAppService {
           password: this.config.password,
           webhookUrl: this.config.webhookUrl || 'https://app.messageautosender.com/api/whatsapp/send',
         },
-        to: message.to, // Send original, normalization happens on server
+        to: message.to,
         message: message.message,
       }
 
-      // Add attachment if provided
       if (message.attachment) {
         requestBody.attachment = message.attachment
       }
 
-      const response = await fetch(apiUrl, {
+      const response = await this.fetchWithTimeout(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
-      })
+      }, 5000)
 
       const result = await response.json()
 
@@ -413,6 +538,131 @@ class WhatsAppService {
   }
 
   /**
+   * Send directly to MessageAutoSender API (server-side only)
+   * This bypasses the Next.js API route and calls the external API directly
+   */
+  private async sendDirectlyToMessageAutoSender(message: NotificationMessage): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('[WhatsApp] Sending directly to MessageAutoSender (server-side):', {
+        to: message.to
+      })
+
+      // Normalize phone number
+      let phoneNumber = message.to.replace(/[^\d+]/g, '')
+      if (phoneNumber.startsWith('+')) {
+        phoneNumber = phoneNumber.substring(1)
+      }
+      
+      // If it's exactly 10 digits, assume it's Indian and add 91
+      if (/^\d{10}$/.test(phoneNumber)) {
+        phoneNumber = '91' + phoneNumber
+      }
+      
+      // If it's 11 digits and starts with 0, remove 0 and add 91
+      if (/^0\d{10}$/.test(phoneNumber)) {
+        phoneNumber = '91' + phoneNumber.substring(1)
+      }
+
+      // Construct API URL
+      let apiUrl = this.config.webhookUrl || 'https://app.messageautosender.com/api/v1/message/create'
+      
+      if (this.config.webhookUrl) {
+        if (!this.config.webhookUrl.match(/\/api\/v1\/message\/create(\/)?$/i)) {
+          const baseUrl = this.config.webhookUrl.replace(/\/$/, '')
+          apiUrl = `${baseUrl}/api/v1/message/create`
+        } else {
+          apiUrl = this.config.webhookUrl
+        }
+      }
+
+      console.log('[WhatsApp] Using MessageAutoSender API URL:', apiUrl)
+
+      // Try Method 1: API key in header (x-api-key) - preferred method
+      const payload = {
+        receiverMobileNo: `+${phoneNumber}`,
+        message: [message.message], // Must be an array
+      }
+
+      let response = await this.fetchWithTimeout(apiUrl, {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.config.apiKey!,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }, 5000)
+
+      let result: any = null
+      let responseRead = false
+
+      // Read response body only once
+      if (response.ok) {
+        result = await response.json()
+        responseRead = true
+        
+        if (result.success === false || result.error || result.status === 'error') {
+          // Try Method 2: Basic Auth as fallback
+          console.log('[WhatsApp] Method 1 failed, trying Basic Auth')
+          const basicAuth = Buffer.from(`${this.config.userId}:${this.config.password}`).toString('base64')
+          response = await this.fetchWithTimeout(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${basicAuth}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          }, 5000)
+          responseRead = false // Reset flag for new response
+        }
+      } else if (response.status === 401 || response.status === 403) {
+        // Try Method 2: Basic Auth as fallback
+        console.log(`[WhatsApp] Method 1 failed with ${response.status}, trying Basic Auth`)
+        const basicAuth = Buffer.from(`${this.config.userId}:${this.config.password}`).toString('base64')
+        response = await this.fetchWithTimeout(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${basicAuth}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }, 5000)
+        responseRead = false // Reset flag for new response
+      }
+
+      // Read response body (only if not already read)
+      if (!responseRead) {
+        if (!response.ok) {
+          const errorText = await response.text()
+          let errorData
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            errorData = { message: errorText || 'Failed to send message' }
+          }
+          const errorMsg = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`
+          console.error('[WhatsApp] Send failed:', errorMsg)
+          return { success: false, error: errorMsg }
+        }
+
+        result = await response.json()
+      }
+
+      // Check result (from either first or second attempt)
+      if (result.success === false || result.error || result.status === 'error') {
+        const errorMsg = result.error || result.message || 'Failed to send message'
+        console.error('[WhatsApp] Send failed:', errorMsg)
+        return { success: false, error: errorMsg }
+      }
+
+      console.log('[WhatsApp] ✅ Message sent successfully')
+      return { success: true }
+    } catch (error: any) {
+      console.error('[WhatsApp] Exception:', error)
+      return { success: false, error: error.message || 'Failed to connect to MessageAutoSender API' }
+    }
+  }
+
+  /**
    * Send via custom webhook
    * Uses Next.js API route to avoid CORS issues
    */
@@ -422,7 +672,8 @@ class WhatsAppService {
     }
 
     try {
-      const response = await fetch('/api/whatsapp/send', {
+      const apiUrl = this.getApiUrl('/api/whatsapp/send')
+      const response = await this.fetchWithTimeout(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -437,7 +688,7 @@ class WhatsAppService {
           to: message.to,
           message: message.message,
         }),
-      })
+      }, 5000)
 
       const result = await response.json()
       if (!response.ok || !result.success) {
@@ -451,24 +702,53 @@ class WhatsAppService {
   }
 
   /**
-   * Set message templates (used for custom templates from database)
+   * Set templates for a specific tenant
+   * @param templates - Map of event_type -> template string
+   * @param tenantId - Tenant ID (or 'global' if no tenantId)
    */
-  setTemplates(templates: Map<string, string>): void {
-    this.templates = templates
+  setTemplates(templates: Map<string, string>, tenantId?: string | null): void {
+    const cacheKey = tenantId || 'global'
+    this.templatesCache.set(cacheKey, templates)
+    this.templatesCacheTime.set(cacheKey, Date.now())
+    console.log(`[WhatsApp] Set templates for tenant: ${cacheKey} (${templates.size} templates)`)
+  }
+  
+  /**
+   * Get templates for a specific tenant
+   * @param tenantId - Tenant ID (or 'global' if no tenantId)
+   * @returns Map of event_type -> template string, or empty Map if not cached
+   */
+  getTemplates(tenantId?: string | null): Map<string, string> {
+    const cacheKey = tenantId || 'global'
+    return this.templatesCache.get(cacheKey) || new Map()
   }
 
   /**
    * Generate notification message based on workflow event
    * Uses custom template from database if available, otherwise uses default
+   * @param event - Workflow event details
+   * @param recipient - Notification recipient
+   * @param tenantId - Tenant ID to get tenant-specific templates
    */
-  generateWorkflowMessage(event: WorkflowEvent, recipient: NotificationRecipient, supabase?: any): string {
-    // Try to load template from database if supabase is provided
-    const customTemplate = this.templates.get(event.type)
+  generateWorkflowMessage(event: WorkflowEvent, recipient: NotificationRecipient, tenantId?: string | null): string {
+    // Get tenant-specific templates
+    const templates = this.getTemplates(tenantId)
+    const customTemplate = templates.get(event.type)
+    
+    console.log(`[WhatsApp] Generating message for event type: "${event.type}", tenant: ${tenantId || 'global'}`, {
+      eventType: event.type,
+      tenantId: tenantId || 'global',
+      hasCustomTemplate: !!customTemplate,
+      availableTemplates: Array.from(templates.keys())
+    })
     
     if (customTemplate) {
+      console.log(`[WhatsApp] ✅ Using custom template for "${event.type}" (tenant: ${tenantId || 'global'})`)
       // Replace template variables with actual values
       return this.replaceTemplateVariables(customTemplate, event, recipient)
     }
+    
+    console.log(`[WhatsApp] ⚠️ No custom template found for "${event.type}" (tenant: ${tenantId || 'global'}), using default template`)
 
     // Use default templates if custom template not available
     const vehicleInfo = event.vehicleNumber ? `Vehicle: ${event.vehicleNumber}` : `Vehicle ID: ${event.vehicleId.substring(0, 8)}`
@@ -519,7 +799,8 @@ class WhatsAppService {
   async sendWorkflowNotification(
     event: WorkflowEvent,
     recipients: NotificationRecipient[],
-    supabase?: any
+    supabase?: any,
+    tenantId?: string | null
   ): Promise<{ sent: number; failed: number; errors: string[] }> {
     const results = { sent: 0, failed: 0, errors: [] as string[] }
 
@@ -533,33 +814,78 @@ class WhatsAppService {
     }
 
     // Load templates from database if supabase is provided
+    // Use tenantId passed as parameter, or try to extract from recipients as fallback
+    let effectiveTenantId: string | null = tenantId || null
+    
+    if (!effectiveTenantId && recipients.length > 0 && supabase) {
+      // Fallback: Try to get tenant_id from the first recipient's userId
+      try {
+        const { data: tenantUser } = await supabase
+          .from('tenant_users')
+          .select('tenant_id')
+          .eq('user_id', recipients[0].userId)
+          .limit(1)
+          .maybeSingle()
+        
+        if (tenantUser) {
+          effectiveTenantId = tenantUser.tenant_id
+          console.log(`[WhatsApp] Extracted tenant_id ${effectiveTenantId} from recipient`)
+        }
+      } catch (error) {
+        console.warn('[WhatsApp] Could not determine tenant_id from recipients:', error)
+      }
+    }
+    
     if (supabase) {
-      const templates = await this.loadMessageTemplates(supabase)
-      this.setTemplates(templates)
+      const templates = await this.loadMessageTemplates(supabase, effectiveTenantId)
+      this.setTemplates(templates, effectiveTenantId)
+      console.log(`[WhatsApp] Templates loaded for tenant: ${effectiveTenantId || 'global'}`, {
+        tenantId: effectiveTenantId || 'global',
+        eventTypes: Array.from(templates.keys()),
+        templateCount: templates.size
+      })
     }
 
-    for (const recipient of recipients) {
+    // Send messages in parallel to improve performance
+    const sendPromises = recipients.map(async (recipient) => {
       if (!recipient.phoneNumber) {
         const errorMsg = `No phone number for ${recipient.name || recipient.userId}`
         console.warn('[WhatsApp]', errorMsg)
-        results.failed++
-        results.errors.push(errorMsg)
-        continue
+        return { success: false, error: errorMsg, recipient }
       }
 
-      const message = this.generateWorkflowMessage(event, recipient, supabase)
+      // Generate message using tenant-specific templates
+      const message = this.generateWorkflowMessage(event, recipient, effectiveTenantId)
       
       const result = await this.sendMessage({
         to: recipient.phoneNumber,
         message: message,
       })
 
-      if (result.success) {
-        results.sent++
+      return { ...result, recipient }
+    })
+
+    // Wait for all messages to complete
+    const sendResults = await Promise.allSettled(sendPromises)
+    
+    // Process results
+    for (const result of sendResults) {
+      if (result.status === 'fulfilled') {
+        const { success, error, recipient } = result.value
+        if (success) {
+          results.sent++
+        } else {
+          results.failed++
+          const errorMsg = recipient 
+            ? `${recipient.name || recipient.userId} (${recipient.phoneNumber}): ${error}`
+            : error || 'Unknown error'
+          console.error('[WhatsApp] ✗ Failed:', errorMsg)
+          results.errors.push(errorMsg)
+        }
       } else {
         results.failed++
-        const errorMsg = `${recipient.name || recipient.userId} (${recipient.phoneNumber}): ${result.error}`
-        console.error('[WhatsApp] ✗ Failed:', errorMsg)
+        const errorMsg = `Failed to send message: ${result.reason}`
+        console.error('[WhatsApp] ✗ Error:', errorMsg)
         results.errors.push(errorMsg)
       }
     }

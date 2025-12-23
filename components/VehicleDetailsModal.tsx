@@ -120,14 +120,61 @@ export default function VehicleDetailsModal({ vehicle, onClose, onStatusUpdate, 
 
       if (error) throw error
 
-      // Create notification for status update
+      // Enqueue notification for status update (non-blocking, instant)
+      try {
+        // Fetch full vehicle data for notification
+        const { data: vehicleData } = await supabase
+          .from('vehicle_inward')
+          .select('*')
+          .eq('id', vehicle.id)
+          .single()
+        
+        if (vehicleData) {
+          // Get current user's role for triggeredByRole
+          const { data: { user } } = await supabase.auth.getUser()
+          let userRole = 'coordinator' // default
+          if (user) {
+            const { data: tenantUser } = await supabase
+              .from('tenant_users')
+              .select('role')
+              .eq('user_id', user.id)
+              .single()
+            if (tenantUser) {
+              userRole = tenantUser.role
+            }
+          }
+          
+          // Enqueue notification for async processing
+          const { notificationQueue } = await import('@/lib/notification-queue')
+          const enqueueResult = await notificationQueue.enqueueStatusUpdated(vehicle.id, vehicleData, newStatus, userRole)
+          
+          if (enqueueResult.success) {
+            console.log('[NotificationQueue] ✅ Status update notification enqueued:', {
+              queueId: enqueueResult.queueId,
+              vehicleId: vehicle.id,
+              status: newStatus
+            })
+          } else {
+            console.error('[NotificationQueue] ❌ Failed to enqueue status update notification:', {
+              error: enqueueResult.error,
+              vehicleId: vehicle.id,
+              status: newStatus
+            })
+          }
+        }
+      } catch (notifError) {
+        console.error('[NotificationQueue] ❌ Exception enqueueing status update notification:', notifError)
+        // Don't block success if notification fails
+      }
+      
+      // Also create in-app notification
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           await notificationsService.createStatusUpdateNotification(user.id, vehicle.id, newStatus)
         }
       } catch (notifError) {
-        console.error('Error creating notification:', notifError)
+        console.error('Error creating in-app notification:', notifError)
       }
 
       alert('Status updated successfully!')

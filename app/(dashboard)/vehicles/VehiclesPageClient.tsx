@@ -353,7 +353,8 @@ export default function VehiclesPageClient() {
         updateQuery = updateQuery.eq('tenant_id', tenantId)
       }
       
-      const { data, error } = await updateQuery.select()
+      // Select all fields including tenant_id for notification enqueueing
+      const { data, error } = await updateQuery.select('*, tenant_id')
 
       console.log('Update result:', { data, error })
 
@@ -374,17 +375,62 @@ export default function VehiclesPageClient() {
           : vehicle
       ))
 
-      // Send WhatsApp notification if status is delivered
-      if (newStatus === 'delivered' || newStatus === 'complete_and_delivered') {
-        try {
-          const vehicleData = data[0]
-          if (vehicleData) {
-            await notificationWorkflow.notifyVehicleDelivered(vehicleId, vehicleData)
+      // Enqueue notifications for async processing (non-blocking, instant)
+      try {
+        const vehicleData = data[0]
+        if (vehicleData) {
+          // Get current user's role for triggeredByRole
+          const { data: { user } } = await supabase.auth.getUser()
+          let userRole = 'coordinator' // default
+          if (user) {
+            const { data: tenantUser } = await supabase
+              .from('tenant_users')
+              .select('role')
+              .eq('user_id', user.id)
+              .single()
+            if (tenantUser) {
+              userRole = tenantUser.role
+            }
           }
-        } catch (notifError) {
-          console.error('Error sending notification:', notifError)
-          // Don't block success if notification fails
+          
+          // Import notification queue
+          const { notificationQueue } = await import('@/lib/notification-queue')
+          
+          // Enqueue status update notification (for all status changes)
+          const statusResult = await notificationQueue.enqueueStatusUpdated(vehicleId, vehicleData, newStatus, userRole)
+          if (statusResult.success) {
+            console.log('[NotificationQueue] ✅ Status update notification enqueued:', {
+              queueId: statusResult.queueId,
+              vehicleId,
+              status: newStatus
+            })
+          } else {
+            console.error('[NotificationQueue] ❌ Failed to enqueue status update:', {
+              error: statusResult.error,
+              vehicleId,
+              status: newStatus
+            })
+          }
+          
+          // Also enqueue specific notification for delivered status
+          if (newStatus === 'delivered' || newStatus === 'complete_and_delivered') {
+            const deliveredResult = await notificationQueue.enqueueVehicleDelivered(vehicleId, vehicleData)
+            if (deliveredResult.success) {
+              console.log('[NotificationQueue] ✅ Vehicle delivered notification enqueued:', {
+                queueId: deliveredResult.queueId,
+                vehicleId
+              })
+            } else {
+              console.error('[NotificationQueue] ❌ Failed to enqueue vehicle delivered:', {
+                error: deliveredResult.error,
+                vehicleId
+              })
+            }
+          }
         }
+      } catch (notifError) {
+        console.error('[NotificationQueue] ❌ Exception enqueueing notification:', notifError)
+        // Don't block success if notification fails
       }
 
       const statusName = newStatus.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())

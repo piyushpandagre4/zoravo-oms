@@ -859,12 +859,23 @@ export default function AccountsPageClient() {
             .single()
           
           if (vehicleData) {
-            // Import notification workflow dynamically
-            const { notificationWorkflow } = await import('@/lib/notification-workflow')
-            await notificationWorkflow.notifyInvoiceAdded(selectedEntry.id, vehicleData)
+            // Import notification queue dynamically
+            const { notificationQueue } = await import('@/lib/notification-queue')
+            const result = await notificationQueue.enqueueInvoiceAdded(selectedEntry.id, vehicleData)
+            if (result.success) {
+              console.log('[NotificationQueue] ✅ Invoice added notification enqueued:', {
+                queueId: result.queueId,
+                vehicleId: selectedEntry.id
+              })
+            } else {
+              console.error('[NotificationQueue] ❌ Failed to enqueue invoice added:', {
+                error: result.error,
+                vehicleId: selectedEntry.id
+              })
+            }
           }
         } catch (notifError) {
-          console.error('Error sending notification:', notifError)
+          console.error('[NotificationQueue] ❌ Exception enqueueing invoice notification:', notifError)
         }
       }
       

@@ -988,10 +988,69 @@ export default function SettingsPageClient() {
 
   const fetchMessageTemplates = async () => {
     try {
-      const { data, error } = await supabase
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
+      
+      // Build query - fetch tenant-specific templates, fallback to global (tenant_id IS NULL)
+      let query = supabase
         .from('message_templates')
         .select('*')
         .order('event_type')
+      
+      // For tenant users, get their tenant templates first, then global as fallback
+      if (!isSuper && tenantId) {
+        // Get tenant-specific templates
+        const { data: tenantTemplates, error: tenantError } = await supabase
+          .from('message_templates')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .order('event_type')
+        
+        // Get global templates (tenant_id IS NULL) as fallback
+        const { data: globalTemplates, error: globalError } = await supabase
+          .from('message_templates')
+          .select('*')
+          .is('tenant_id', null)
+          .order('event_type')
+        
+        if (tenantError || globalError) {
+          throw tenantError || globalError
+        }
+        
+        // Merge: tenant templates override global templates
+        const templateMap = new Map<string, any>()
+        
+        // First, add global templates
+        if (globalTemplates) {
+          globalTemplates.forEach((template: any) => {
+            templateMap.set(template.event_type, template)
+          })
+        }
+        
+        // Then, override with tenant-specific templates
+        if (tenantTemplates) {
+          tenantTemplates.forEach((template: any) => {
+            templateMap.set(template.event_type, template)
+          })
+        }
+        
+        const data = Array.from(templateMap.values())
+        
+        if (data && data.length > 0) {
+          setMessageTemplates(data)
+          const templateContentMap = new Map<string, string>()
+          data.forEach((template: any) => {
+            templateContentMap.set(template.event_type, template.template)
+          })
+          setTemplateContent(templateContentMap)
+        } else {
+          loadDefaultTemplates()
+        }
+        return
+      } else {
+        // Super admin sees all templates
+        query = query.order('event_type')
+      }
       
       if (error) {
         // If table doesn't exist or RLS error, use default templates
@@ -1038,11 +1097,26 @@ export default function SettingsPageClient() {
   const saveMessageTemplates = async () => {
     try {
       setSavingTemplates(true)
+      const tenantId = getCurrentTenantId()
+      const isSuper = isSuperAdmin()
 
       for (const [eventType, template] of templateContent.entries()) {
+        // Save with tenant_id for tenant users, NULL for super admin (global templates)
+        const templateData: any = {
+          event_type: eventType,
+          template: template,
+        }
+        
+        // Only set tenant_id if not super admin and tenantId exists
+        if (!isSuper && tenantId) {
+          templateData.tenant_id = tenantId
+        } else {
+          templateData.tenant_id = null // Global templates for super admin
+        }
+        
         await supabase
           .from('message_templates')
-          .upsert({ event_type: eventType, template: template }, { onConflict: 'event_type' })
+          .upsert(templateData, { onConflict: 'tenant_id,event_type' })
       }
 
       alert('Message templates saved successfully!')
@@ -1234,12 +1308,64 @@ export default function SettingsPageClient() {
 
   const saveNotificationPreferences = async () => {
     try {
+      // Validation: Check for common configuration issues
+      const warnings: string[] = []
+      const enabledUsers = notificationPreferences.filter((p: any) => p.whatsapp_enabled)
+      
+      for (const pref of enabledUsers) {
+        // Check if user is enabled but has no event preferences checked
+        const hasAnyPreference = 
+          pref.notify_on_vehicle_created ||
+          pref.notify_on_installation_complete ||
+          pref.notify_on_invoice_added ||
+          pref.notify_on_accountant_complete ||
+          pref.notify_on_vehicle_delivered
+        
+        if (!hasAnyPreference) {
+          warnings.push(`${pref.user_id || 'User'} (${pref.role}) is enabled but has no event preferences checked. They will not receive any notifications.`)
+        }
+        
+        // Check if user has no phone number
+        if (!pref.phone_number || pref.phone_number.trim() === '') {
+          warnings.push(`${pref.user_id || 'User'} (${pref.role}) is enabled but has no phone number. They will not receive any notifications.`)
+        }
+      }
+      
+      // Check if there are users with preferences but not enabled
+      const usersWithPreferencesButNotEnabled = notificationPreferences.filter((p: any) => 
+        !p.whatsapp_enabled && (
+          p.notify_on_vehicle_created ||
+          p.notify_on_installation_complete ||
+          p.notify_on_invoice_added ||
+          p.notify_on_accountant_complete ||
+          p.notify_on_vehicle_delivered
+        )
+      )
+      
+      if (usersWithPreferencesButNotEnabled.length > 0) {
+        warnings.push(`${usersWithPreferencesButNotEnabled.length} user(s) have event preferences checked but are not enabled. Enable them to receive notifications.`)
+      }
+      
+      // Show warnings if any, but allow saving
+      if (warnings.length > 0) {
+        const warningMessage = '⚠️ Configuration Warnings:\n\n' + warnings.join('\n') + '\n\nYou can still save, but these users may not receive notifications as expected.'
+        if (!confirm(warningMessage + '\n\nDo you want to continue saving?')) {
+          return // User chose to cancel
+        }
+      }
+      
+      // Save preferences
       for (const pref of notificationPreferences) {
         await supabase
           .from('notification_preferences')
           .upsert(pref, { onConflict: 'user_id,role' })
       }
-      alert('Notification preferences saved successfully!')
+      
+      const successMessage = warnings.length > 0 
+        ? 'Notification preferences saved successfully!\n\nNote: ' + warnings.length + ' warning(s) were shown. Please review your configuration.'
+        : 'Notification preferences saved successfully!'
+      
+      alert(successMessage)
     } catch (error: any) {
       console.error('Error saving notification preferences:', error)
       alert(`Failed to save: ${error.message}`)

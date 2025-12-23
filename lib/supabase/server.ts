@@ -8,6 +8,8 @@ import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adap
 // Server client for server components and API routes
 // Accepts optional cookieStore for backward compatibility with API routes
 // If response is provided, cookies will be set on the response
+// Note: In Next.js 15+, cookies() is async, but we keep this sync for backward compatibility
+// For API routes, use createClientForRouteHandler() instead
 export function createClient(
   cookieStoreOrResponse?: ReadonlyRequestCookies | NextResponse,
   response?: NextResponse
@@ -19,13 +21,17 @@ export function createClient(
   if (cookieStoreOrResponse instanceof NextResponse) {
     // If first param is NextResponse, use it for setting cookies
     responseToUse = cookieStoreOrResponse
-    cookieStore = cookies()
+    // Note: This will cause a warning in Next.js 15+ but maintains backward compatibility
+    // For new code, use createClientForRouteHandler() in API routes
+    cookieStore = cookies() as any
   } else if (cookieStoreOrResponse) {
     // If cookieStore is provided, use it
     cookieStore = cookieStoreOrResponse
   } else {
     // Default: use cookies() from next/headers
-    cookieStore = cookies()
+    // Note: This will cause a warning in Next.js 15+ but maintains backward compatibility
+    // For new code, use createClientForRouteHandler() in API routes
+    cookieStore = cookies() as any
   }
   
   return createServerClient(

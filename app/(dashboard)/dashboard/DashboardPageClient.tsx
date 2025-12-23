@@ -496,10 +496,22 @@ export default function DashboardPageClient() {
             .single()
           
           if (vehicleData) {
-            await notificationWorkflow.notifyInvoiceAdded(vehicleId, vehicleData)
+            const { notificationQueue } = await import('@/lib/notification-queue')
+            const result = await notificationQueue.enqueueInvoiceAdded(vehicleId, vehicleData)
+            if (result.success) {
+              console.log('[NotificationQueue] ✅ Invoice added notification enqueued:', {
+                queueId: result.queueId,
+                vehicleId
+              })
+            } else {
+              console.error('[NotificationQueue] ❌ Failed to enqueue invoice added:', {
+                error: result.error,
+                vehicleId
+              })
+            }
           }
         } catch (notifError) {
-          console.error('Error sending notification:', notifError)
+          console.error('[NotificationQueue] ❌ Exception enqueueing invoice notification:', notifError)
         }
       }
       
@@ -609,7 +621,7 @@ export default function DashboardPageClient() {
               : v
           ))
           
-          // Send WhatsApp notification
+          // Enqueue notification for async processing
           try {
             const { data: vehicleData } = await supabase
               .from('vehicle_inward')
@@ -618,10 +630,22 @@ export default function DashboardPageClient() {
               .single()
             
             if (vehicleData) {
-              await notificationWorkflow.notifyInstallationComplete(vehicleId, vehicleData)
+              const { notificationQueue } = await import('@/lib/notification-queue')
+              const result = await notificationQueue.enqueueInstallationComplete(vehicleId, vehicleData)
+              if (result.success) {
+                console.log('[NotificationQueue] ✅ Installation complete notification enqueued:', {
+                  queueId: result.queueId,
+                  vehicleId
+                })
+              } else {
+                console.error('[NotificationQueue] ❌ Failed to enqueue installation complete:', {
+                  error: result.error,
+                  vehicleId
+                })
+              }
             }
           } catch (notifError) {
-            console.error('Error sending notification:', notifError)
+            console.error('[NotificationQueue] ❌ Exception enqueueing installation notification:', notifError)
             // Don't block the success message if notification fails
           }
           
@@ -2831,10 +2855,22 @@ export default function DashboardPageClient() {
                                         .single()
                                       
                                       if (vehicleData) {
-                                        await notificationWorkflow.notifyAccountantComplete(inwardId, vehicleData)
+                                        const { notificationQueue } = await import('@/lib/notification-queue')
+                                        const result = await notificationQueue.enqueueAccountantComplete(inwardId, vehicleData)
+                                        if (result.success) {
+                                          console.log('[NotificationQueue] ✅ Accountant complete notification enqueued:', {
+                                            queueId: result.queueId,
+                                            vehicleId: inwardId
+                                          })
+                                        } else {
+                                          console.error('[NotificationQueue] ❌ Failed to enqueue accountant complete:', {
+                                            error: result.error,
+                                            vehicleId: inwardId
+                                          })
+                                        }
                                       }
                                     } catch (notifError) {
-                                      console.error('Error sending notification:', notifError)
+                                      console.error('[NotificationQueue] ❌ Exception enqueueing accountant notification:', notifError)
                                     }
                                     
                                     alert('Entry marked as Complete!')

@@ -4,7 +4,28 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClientForRouteHandler } from '@/lib/supabase/server'
+
+// Helper function to add timeout to fetch requests
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 5000): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`)
+    }
+    throw error
+  }
+}
 
 // Add GET handler for testing if route is accessible
 export async function GET() {
@@ -14,28 +35,51 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   console.log('[WhatsApp API] Route handler called')
   
+  // Create response object for cookie handling
+  const response = new NextResponse()
+  
   try {
-    const supabase = createClient()
+    const supabase = createClientForRouteHandler(request, response)
     
-    // Verify user is authenticated and is admin (optional check - can be disabled for internal use)
+    // Verify user is authenticated
+    // Allow all authenticated users (admins, coordinators, managers, etc.) to send workflow notifications
+    // This is necessary because workflow notifications are triggered by system events, not just admin actions
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        console.log('[WhatsApp API] User not authenticated')
+        return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+      }
+
+      // Verify user has a valid tenant_users relationship (ensures they belong to a tenant)
+      // This allows coordinators, managers, accountants, etc. to send workflow notifications
+      const { data: tenantUser, error: tenantUserError } = await supabase
+        .from('tenant_users')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .maybeSingle()
+
+      if (tenantUserError || !tenantUser) {
+        // If no tenant_users relationship, check if user is admin (for backward compatibility)
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', user.id)
           .single()
 
-        // Only check admin role if profile exists, otherwise allow (for testing)
-        if (profile && profile.role !== 'admin') {
-          console.log('[WhatsApp API] Non-admin user attempted access')
-          return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
+        if (!profile || profile.role !== 'admin') {
+          console.log('[WhatsApp API] User has no tenant relationship and is not admin')
+          return NextResponse.json({ error: 'Forbidden - Valid tenant access or admin role required' }, { status: 403 })
         }
       }
+      
+      console.log('[WhatsApp API] User authenticated and authorized')
     } catch (authError) {
-      // If auth check fails, continue anyway (for testing purposes)
-      console.warn('[WhatsApp API] Auth check failed, continuing:', authError)
+      // If auth check fails, block the request for security
+      console.error('[WhatsApp API] Auth check failed:', authError)
+      return NextResponse.json({ error: 'Unauthorized - Authentication failed' }, { status: 401 })
     }
 
     // Get request body
@@ -157,6 +201,7 @@ async function sendTextMessage(config: any, to: string, message: string) {
     // message: array of strings
 
     // Method 1: API key in header (x-api-key) - preferred method
+    // Try only the most likely method first, fail fast if it doesn't work
     console.log('[WhatsApp API] Trying Method 1: x-api-key header')
     let attempt1 = await trySendMessage(apiUrl, phoneNumber, message, config, {
       'x-api-key': config.apiKey,
@@ -166,62 +211,34 @@ async function sendTextMessage(config: any, to: string, message: string) {
       message: [message], // Must be an array
     })
 
-    if (attempt1.success || (attempt1.status !== 401 && attempt1.status !== 404)) {
+    if (attempt1.success) {
       return attempt1.response
     }
 
-    console.log(`[WhatsApp API] Method 1 (x-api-key header) failed with ${attempt1.status}, trying Method 2 (Basic Auth)`)
+    // If Method 1 fails with 401/403, try Method 2 (Basic Auth) as fallback
+    // But fail fast - don't try all 4 methods
+    if (attempt1.status === 401 || attempt1.status === 403) {
+      console.log(`[WhatsApp API] Method 1 failed with ${attempt1.status}, trying Method 2 (Basic Auth) as fallback`)
+      
+      const basicAuth = Buffer.from(`${config.userId}:${config.password}`).toString('base64')
+      let attempt2 = await trySendMessage(apiUrl, phoneNumber, message, config, {
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type': 'application/json',
+      }, {
+        receiverMobileNo: `+${phoneNumber}`,
+        message: [message],
+      })
 
-    // Method 2: Basic Authorization (userId:password)
-    const basicAuth = Buffer.from(`${config.userId}:${config.password}`).toString('base64')
-    let attempt2 = await trySendMessage(apiUrl, phoneNumber, message, config, {
-      'Authorization': `Basic ${basicAuth}`,
-      'Content-Type': 'application/json',
-    }, {
-      receiverMobileNo: `+${phoneNumber}`,
-      message: [message],
-    })
-
-    if (attempt2.success || (attempt2.status !== 401 && attempt2.status !== 404)) {
-      return attempt2.response
+      if (attempt2.success) {
+        return attempt2.response
+      }
     }
 
-    console.log(`[WhatsApp API] Method 2 (Basic Auth) failed with ${attempt2.status}, trying Method 3 (API key in query parameter)`)
-
-    // Method 3: API key in query parameter
-    const urlWithQuery = `${apiUrl}${apiUrl.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(config.apiKey)}`
-    let attempt3 = await trySendMessage(urlWithQuery, phoneNumber, message, config, {
-      'Content-Type': 'application/json',
-    }, {
-      receiverMobileNo: `+${phoneNumber}`,
-      message: [message],
-    })
-
-    if (attempt3.success || (attempt3.status !== 401 && attempt3.status !== 404)) {
-      return attempt3.response
-    }
-
-    console.log(`[WhatsApp API] Method 3 (API key in query) failed with ${attempt3.status}, trying Method 4 (username/password in body - deprecated)`)
-
-    // Method 4: Username/password in body (deprecated but might work)
-    let attempt4 = await trySendMessage(apiUrl, phoneNumber, message, config, {
-      'Content-Type': 'application/json',
-    }, {
-      username: config.userId,
-      password: config.password,
-      receiverMobileNo: `+${phoneNumber}`,
-      message: [message],
-    })
-
-    if (attempt4.success) {
-      return attempt4.response
-    }
-
-    // If all methods failed, return the last error
+    // If both methods failed, return error immediately (fail fast)
     return NextResponse.json({ 
       success: false, 
-      error: 'Authentication failed with all methods. Please verify your API Key, User ID, and Password are correct. Check MessageAutoSender documentation for the correct authentication format.' 
-    }, { status: 401 })
+      error: attempt1.response ? (await attempt1.response.json()).error : 'Authentication failed. Please verify your API Key, User ID, and Password are correct.' 
+    }, { status: attempt1.status || 401 })
 }
 
 async function sendDocumentMessage(config: any, to: string, attachment: any) {
@@ -296,11 +313,12 @@ async function trySendMessage(
   try {
     console.log('[WhatsApp API] Trying with headers:', Object.keys(headers))
     
-    const fetchResponse = await fetch(apiUrl, {
+    // Use fetchWithTimeout with 5-second timeout
+    const fetchResponse = await fetchWithTimeout(apiUrl, {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(payload),
-    })
+    }, 5000)
 
     const responseText = await fetchResponse.text()
     console.log('[WhatsApp API] Response status:', fetchResponse.status, 'Response:', responseText)
@@ -377,14 +395,14 @@ async function sendViaTwilio(config: any, to: string, message: string) {
     formData.append('To', `whatsapp:${to}`)
     formData.append('Body', message)
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: formData.toString(),
-    })
+    }, 5000)
 
     if (!response.ok) {
       const errorData = await response.json()
@@ -414,14 +432,14 @@ async function sendViaCloudAPI(config: any, to: string, message: string) {
       }
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    })
+    }, 5000)
 
     if (!response.ok) {
       const errorData = await response.json()
@@ -450,14 +468,14 @@ async function sendViaCustom(config: any, to: string, message: string) {
       apiSecret: config.apiSecret,
     }
 
-    const response = await fetch(config.webhookUrl, {
+    const response = await fetchWithTimeout(config.webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(config.apiKey && { 'X-API-Key': config.apiKey }),
       },
       body: JSON.stringify(payload),
-    })
+    }, 5000)
 
     if (!response.ok) {
       return NextResponse.json({ success: false, error: 'Webhook returned an error' }, { status: response.status })

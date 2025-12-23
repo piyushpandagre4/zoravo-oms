@@ -98,9 +98,14 @@ export default function EditVehicleInwardPageClient() {
           ? new Date(data.estimated_completion_date).toISOString().split('T')[0]
           : ''
 
+        // Extract 10-digit number from phone (remove +91 prefix if present)
+        const phoneNumber = data.customer_phone 
+          ? data.customer_phone.replace(/^\+91\s*/, '').replace(/\D/g, '').slice(0, 10)
+          : ''
+        
         setFormData({
           ownerName: data.customer_name || '',
-          mobileNumber: data.customer_phone || '',
+          mobileNumber: phoneNumber,
           email: data.customer_email || '',
           vehicleNumber: data.registration_number || '',
           modelName: data.model || '',
@@ -288,9 +293,21 @@ export default function EditVehicleInwardPageClient() {
         ? JSON.stringify(products.filter(p => p.product.trim()))
         : null
 
+      // Format phone number with +91 prefix if not already present
+      let formattedPhone = formData.mobileNumber.trim()
+      if (formattedPhone && !formattedPhone.startsWith('+')) {
+        // If it's just digits, add +91 prefix
+        if (/^\d{10}$/.test(formattedPhone)) {
+          formattedPhone = '+91' + formattedPhone
+        } else if (/^\d+$/.test(formattedPhone)) {
+          // If it's digits but not exactly 10, still add +91
+          formattedPhone = '+91' + formattedPhone
+        }
+      }
+      
       const payload = {
         customer_name: formData.ownerName,
-        customer_phone: formData.mobileNumber,
+        customer_phone: formattedPhone,
         customer_email: formData.email || null,
         registration_number: formData.vehicleNumber,
         model: formData.modelName,
@@ -473,23 +490,38 @@ export default function EditVehicleInwardPageClient() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                  Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                  Mobile Number <span style={{ color: '#ef4444' }}>*</span> <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 'normal' }}>(+91)</span>
                 </label>
-                <input
-                  type="tel"
-                  value={formData.mobileNumber}
-                  onChange={(e) => handleInputChange('mobileNumber', e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="Enter mobile number"
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.875rem',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ 
+                    padding: '0.625rem 0.875rem', 
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: '0.5rem 0 0 0.5rem',
+                    backgroundColor: '#f9fafb',
                     fontSize: '0.875rem',
-                    outline: 'none'
-                  }}
-                />
+                    color: '#6b7280',
+                    borderRight: 'none'
+                  }}>+91</span>
+                  <input
+                    type="tel"
+                    value={formData.mobileNumber}
+                    onChange={(e) => {
+                      // Only allow digits, max 10 digits
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+                      handleInputChange('mobileNumber', digits)
+                    }}
+                    placeholder="9876543210"
+                    required
+                    style={{
+                      flex: 1,
+                      padding: '0.625rem 0.875rem',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '0 0.5rem 0.5rem 0',
+                      fontSize: '0.875rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>

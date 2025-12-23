@@ -32,10 +32,26 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
 
   useEffect(() => {
     if (editingUser) {
+      // Extract phone number - if it has +91, keep it; otherwise add +91 prefix
+      let phoneValue = editingUser.phone || ''
+      if (phoneValue && !phoneValue.startsWith('+91')) {
+        // If it's just digits, add +91 prefix
+        const digits = phoneValue.replace(/\D/g, '')
+        if (digits.length === 10) {
+          phoneValue = '+91 ' + digits
+        } else if (digits.length > 0) {
+          phoneValue = '+91 ' + digits
+        } else {
+          phoneValue = '+91 '
+        }
+      } else if (!phoneValue) {
+        phoneValue = '+91 '
+      }
+      
       setFormData({
         name: editingUser.name || '',
         email: editingUser.email || '',
-        phone: editingUser.phone || '',
+        phone: phoneValue,
         password: '',
         departments: (editingUser.departments || editingUser.department || '')
           ? Array.isArray(editingUser.departments)
@@ -50,11 +66,11 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
         join_date: editingUser.join_date || editingUser.joinDate || ''
       })
     } else {
-      // Reset form
+      // Reset form with +91 as default for phone (India)
       setFormData({
         name: '',
         email: '',
-        phone: '',
+        phone: '+91 ',
         password: '',
         departments: [],
         specialization: '',
@@ -211,6 +227,21 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
       join_date: formData.join_date || 'not provided'
     })
     
+    // Format phone number to E.164 format (+91XXXXXXXXXX)
+    let formattedPhone = formData.phone.trim()
+    if (formattedPhone && !formattedPhone.startsWith('+')) {
+      // Remove spaces and ensure +91 prefix
+      const digits = formattedPhone.replace(/\D/g, '')
+      if (digits.length >= 10) {
+        formattedPhone = '+91' + digits.slice(-10) // Take last 10 digits
+      } else if (digits.length > 0) {
+        formattedPhone = '+91' + digits
+      }
+    } else if (formattedPhone.startsWith('+91 ')) {
+      // Remove space after +91
+      formattedPhone = formattedPhone.replace('+91 ', '+91')
+    }
+    
     // Call API route to create user
     const response = await fetch('/api/users/create', {
       method: 'POST',
@@ -221,7 +252,7 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
         email: formData.email,
         password: formData.password,
         name: formData.name,
-        phone: formData.phone,
+        phone: formattedPhone,
         role: role,
         departments: formData.departments,
         specialization: formData.specialization,
@@ -306,7 +337,23 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
     }
 
     // Add role-specific fields if needed
-    if (formData.phone) updatePayload.phone = formData.phone
+    // Format phone number to E.164 format (+91XXXXXXXXXX)
+    if (formData.phone) {
+      let formattedPhone = formData.phone.trim()
+      if (formattedPhone && !formattedPhone.startsWith('+')) {
+        // Remove spaces and ensure +91 prefix
+        const digits = formattedPhone.replace(/\D/g, '')
+        if (digits.length >= 10) {
+          formattedPhone = '+91' + digits.slice(-10) // Take last 10 digits
+        } else if (digits.length > 0) {
+          formattedPhone = '+91' + digits
+        }
+      } else if (formattedPhone.startsWith('+91 ')) {
+        // Remove space after +91
+        formattedPhone = formattedPhone.replace('+91 ', '+91')
+      }
+      updatePayload.phone = formattedPhone
+    }
     // Store departments in backward-compatible single column `department`
     if (Array.isArray(formData.departments)) {
       updatePayload.department = formData.departments.join(', ')
@@ -436,13 +483,26 @@ export default function UserManagementModal({ isOpen, onClose, editingUser, role
             {/* Phone */}
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
-                Phone *
+                Phone * <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 'normal' }}>(+91 for India)</span>
               </label>
               <input
                 type="tel"
                 required
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => {
+                  let value = e.target.value
+                  // Ensure +91 prefix is maintained for new users
+                  if (!editingUser && !value.startsWith('+91')) {
+                    // If user deletes the +91, restore it
+                    if (value === '' || value === '+') {
+                      value = '+91 '
+                    } else if (!value.startsWith('+')) {
+                      value = '+91 ' + value
+                    }
+                  }
+                  setFormData({ ...formData, phone: value })
+                }}
+                placeholder="+91 9876543210"
                 style={{
                   width: '100%',
                   padding: '0.75rem',
