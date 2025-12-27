@@ -1,0 +1,26 @@
+# robots.txt for Zoravo OMS
+# Allow all search engines to crawl public pages
+
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /login
+Allow: /forgot-password
+
+# Disallow private/admin routes
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /api
+Disallow: /_next
+Disallow: /settings
+Disallow: /accounts
+Disallow: /vehicles
+Disallow: /inward
+Disallow: /trackers
+
+# Sitemap location
+Sitemap: https://zoravo.in/sitemap.xml
+
+# Crawl delay (optional - adjust if needed)
+Crawl-delay: 1
+

@@ -93,10 +93,16 @@ export default function CreateInvoicePage() {
       const { data: allJobs } = await query
 
       if (allJobs) {
-        // Filter out jobs that already have invoices
-        const { data: existingInvoices } = await supabase
+        // Filter out jobs that already have invoices (with tenant filtering)
+        let existingInvoicesQuery = supabase
           .from('invoices')
           .select('vehicle_inward_id')
+        
+        if (!isSuper && tenantId) {
+          existingInvoicesQuery = existingInvoicesQuery.eq('tenant_id', tenantId)
+        }
+        
+        const { data: existingInvoices } = await existingInvoicesQuery
 
         const invoiceJobIds = new Set(existingInvoices?.map(i => i.vehicle_inward_id) || [])
         const available = allJobs.filter(job => !invoiceJobIds.has(job.id))
@@ -331,7 +337,7 @@ export default function CreateInvoicePage() {
                 ))}
                 {lineItems.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
-                    No line items. Click "Add Item" to add products.
+                    No line items. Click &quot;Add Item&quot; to add products.
                   </div>
                 )}
               </div>

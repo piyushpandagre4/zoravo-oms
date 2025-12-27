@@ -11,6 +11,7 @@ export interface NotificationPreferences {
   role: string
   whatsappEnabled: boolean
   phoneNumber?: string
+  department?: string
   notifyOnVehicleCreated?: boolean
   notifyOnStatusUpdated?: boolean
   notifyOnInstallationComplete?: boolean
@@ -143,11 +144,21 @@ class NotificationWorkflowService {
       const { data: preferences, error } = await query
 
       if (!error && preferences && preferences.length > 0) {
+        // Fetch department from profiles table for all user IDs
+        const preferenceUserIds = preferences.map((p: any) => p.user_id)
+        const { data: profiles } = await this.supabase
+          .from('profiles')
+          .select('id, department')
+          .in('id', preferenceUserIds)
+        
+        const profilesMap = new Map(profiles?.map((p: any) => [p.id, p.department || '']) || [])
+        
         const mappedPreferences = preferences.map((p: any) => ({
           userId: p.user_id,
           role: p.role,
           whatsappEnabled: p.whatsapp_enabled,
           phoneNumber: p.phone_number,
+          department: profilesMap.get(p.user_id) || '',
           notifyOnVehicleCreated: p.notify_on_vehicle_created,
           notifyOnStatusUpdated: p.notify_on_status_updated,
           notifyOnInstallationComplete: p.notify_on_installation_complete,
@@ -205,6 +216,7 @@ class NotificationWorkflowService {
         role: profile.role,
         whatsappEnabled: true, // Default enabled
         phoneNumber: profile.phone,
+        department: profile.department || '',
         notifyOnVehicleCreated: true,
         notifyOnStatusUpdated: true,
         notifyOnInstallationComplete: true,
@@ -307,6 +319,43 @@ class NotificationWorkflowService {
     await whatsappService.initialize(config)
     console.log('[Notification] ✅ WhatsApp service initialized')
 
+    // Fetch vehicle_inward entry to get assigned_manager_id and accessories_requested
+    console.log('[Notification] 🔍 Fetching vehicle_inward entry for filtering:', { vehicleId })
+    const { data: vehicleEntry, error: vehicleEntryError } = await this.supabase
+      .from('vehicle_inward')
+      .select('assigned_manager_id, accessories_requested')
+      .eq('id', vehicleId)
+      .maybeSingle()
+
+    if (vehicleEntryError) {
+      console.error('[Notification] ❌ Error fetching vehicle_inward entry:', vehicleEntryError)
+      // Continue with notification but without filtering (fallback to all recipients)
+    }
+
+    // Extract departments from products in accessories_requested
+    let productDepartments: string[] = []
+    if (vehicleEntry?.accessories_requested) {
+      try {
+        const products = JSON.parse(vehicleEntry.accessories_requested)
+        if (Array.isArray(products)) {
+          productDepartments = products
+            .map((p: any) => p.department?.trim())
+            .filter((d: string) => d && d.length > 0)
+          // Remove duplicates
+          productDepartments = [...new Set(productDepartments)]
+        }
+      } catch (parseError) {
+        console.warn('[Notification] ⚠️ Error parsing accessories_requested JSON:', parseError)
+        // If parsing fails, treat as no departments (will notify all installers)
+      }
+    }
+
+    console.log('[Notification] 📦 Extracted product departments:', {
+      productDepartments,
+      assignedManagerId: vehicleEntry?.assigned_manager_id || null,
+      hasAccessories: !!vehicleEntry?.accessories_requested
+    })
+
     const event: WorkflowEvent = {
       type: 'vehicle_inward_created',
       vehicleId,
@@ -373,6 +422,7 @@ class NotificationWorkflowService {
 
     // Filter recipients: Both whatsapp_enabled (from getPreferencesForRole) AND notifyOnVehicleCreated must be true
     // Also need valid phone number
+    // NEW: Also filter by department matching for installers
     const installerRecipients = installers
       .filter(p => {
         const hasPreference = p.notifyOnVehicleCreated === true
@@ -389,7 +439,35 @@ class NotificationWorkflowService {
           }
           return false
         }
-        return true
+
+        // NEW: Department-based filtering
+        // If no product departments, notify all installers (as per requirement)
+        if (productDepartments.length === 0) {
+          if (this.ENABLE_VERBOSE_LOGGING) {
+            console.log(`[Notification] ✅ Installer ${p.userId} included: No product departments, notifying all`)
+          }
+          return true
+        }
+
+        // Get installer's departments (comma-separated string)
+        const installerDepts = (p.department || '')
+          .split(',')
+          .map(d => d.trim())
+          .filter(d => d.length > 0)
+
+        // Check if any installer department matches any product department (case-sensitive)
+        const hasMatchingDept = productDepartments.some(productDept => 
+          installerDepts.includes(productDept)
+        )
+
+        if (!hasMatchingDept && this.ENABLE_VERBOSE_LOGGING) {
+          console.log(`[Notification] ⏭️ Installer ${p.userId} skipped: No matching department`, {
+            installerDepts,
+            productDepartments
+          })
+        }
+
+        return hasMatchingDept
       })
       .map(p => ({
         userId: p.userId,
@@ -414,7 +492,24 @@ class NotificationWorkflowService {
           }
           return false
         }
-        return true
+
+        // NEW: Only notify the assigned manager
+        if (vehicleEntry?.assigned_manager_id) {
+          const isAssigned = p.userId === vehicleEntry.assigned_manager_id
+          if (!isAssigned && this.ENABLE_VERBOSE_LOGGING) {
+            console.log(`[Notification] ⏭️ Manager ${p.userId} skipped: Not the assigned manager`, {
+              assignedManagerId: vehicleEntry.assigned_manager_id,
+              currentManagerId: p.userId
+            })
+          }
+          return isAssigned
+        }
+
+        // No manager assigned, don't notify any managers
+        if (this.ENABLE_VERBOSE_LOGGING) {
+          console.log(`[Notification] ⏭️ Manager ${p.userId} skipped: No assigned manager`)
+        }
+        return false
       })
       .map(p => ({
         userId: p.userId,

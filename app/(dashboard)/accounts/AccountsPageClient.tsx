@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DollarSign, FileText, TrendingUp, Eye, Download, Search, Calendar, User, Car, Package, MapPin, Building, AlertCircle, CheckCircle, Clock, Edit2, Save, X, Upload, Link as LinkIcon, FileImage, BarChart3, Filter, Percent, Users, Edit, Ban, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, MessageSquare } from 'lucide-react'
 import InvoiceDetailModal from '@/components/InvoiceDetailModal'
 import PaymentRecordingModal from '@/components/PaymentRecordingModal'
 import { createClient } from '@/lib/supabase/client'
 import VehicleCommentsSection from '@/components/VehicleCommentsSection'
 import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
+import { logger } from '@/lib/logger'
 
 interface AccountEntry {
   id: string
@@ -52,24 +53,57 @@ interface InvoiceReference {
   uploadedAt?: string
 }
 
+interface Invoice {
+  id: string
+  invoice_number: string
+  total_amount: number
+  paid_amount: number
+  balance_amount: number
+  status: string
+  due_date?: string
+  vehicle_id?: string
+  created_at?: string
+  updated_at?: string
+}
+
+interface PaymentHistory {
+  id: string
+  invoice_id: string
+  amount: number
+  payment_method: string
+  payment_date: string
+  notes?: string
+  created_at: string
+  created_by?: string
+}
+
+interface Summary {
+  totalEntries: number
+  totalAmount: number
+  paidAmount: number
+  pendingAmount: number
+  completedEntries: number
+}
+
 export default function AccountsPageClient() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState('entries') // Default to Account Entries tab
   const [entries, setEntries] = useState<AccountEntry[]>([])
   const [completedEntries, setCompletedEntries] = useState<AccountEntry[]>([])
-  const [invoices, setInvoices] = useState<any[]>([])
-  const [summary, setSummary] = useState<any>(null)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(false)
   const [completedLoading, setCompletedLoading] = useState(false)
   const [invoicesLoading, setInvoicesLoading] = useState(false)
-  const [paymentHistory, setPaymentHistory] = useState<any[]>([])
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([])
   const [loadingPayments, setLoadingPayments] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<any>(null)
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null)
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null)
   const [timeFilter, setTimeFilter] = useState<string>('all') // 'all', 'today', 'week', 'month', 'year', 'custom'
   const [customStartDate, setCustomStartDate] = useState<string>('')
   const [customEndDate, setCustomEndDate] = useState<string>('')
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   const [locationNames, setLocationNames] = useState<Map<string, string>>(new Map())
   const [vehicleTypeNames, setVehicleTypeNames] = useState<Map<string, string>>(new Map())
   const [managerNames, setManagerNames] = useState<Map<string, string>>(new Map())
@@ -83,6 +117,7 @@ export default function AccountsPageClient() {
   const [invoiceReferences, setInvoiceReferences] = useState<InvoiceReference[]>([])
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [showInvoiceSection, setShowInvoiceSection] = useState(false)
   const [userRole, setUserRole] = useState('accountant')
   const [editingDiscount, setEditingDiscount] = useState(false)
   const [discountAmount, setDiscountAmount] = useState<string>('')
@@ -94,6 +129,8 @@ export default function AccountsPageClient() {
   const [updatingInvoiceNumber, setUpdatingInvoiceNumber] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage] = useState(10)
+  const [settledInvoicesPage, setSettledInvoicesPage] = useState(1)
+  const [settledEntriesPage, setSettledEntriesPage] = useState(1)
   const [nextPaymentDueDate, setNextPaymentDueDate] = useState<string>('')
   const [editingDueDate, setEditingDueDate] = useState(false)
   const [creatingInvoice, setCreatingInvoice] = useState(false)
@@ -101,6 +138,15 @@ export default function AccountsPageClient() {
   const [editingPayment, setEditingPayment] = useState<any>(null)
   const [deletingPayment, setDeletingPayment] = useState<string | null>(null)
   const supabase = createClient()
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]) // Store timeout IDs for cleanup
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutRefs.current.forEach(timeoutId => clearTimeout(timeoutId))
+      timeoutRefs.current = []
+    }
+  }, [])
 
   useEffect(() => {
     loadRelatedData()
@@ -150,28 +196,110 @@ export default function AccountsPageClient() {
     }
   }, [selectedEntry])
 
-  // Reset to page 1 when search term changes
+  // Update due date state when invoice changes
+  useEffect(() => {
+    if (selectedInvoiceForPayment?.due_date) {
+      setNextPaymentDueDate(selectedInvoiceForPayment.due_date)
+    } else {
+      setNextPaymentDueDate('')
+    }
+    setEditingDueDate(false)
+  }, [selectedInvoiceForPayment])
+
+  // Sync discount from invoice to selectedEntry.notes when invoice changes
+  // This ensures consistent display whether checking invoice or notes
+  useEffect(() => {
+    if (selectedInvoiceForPayment && selectedEntry) {
+      const invoiceDiscount = selectedInvoiceForPayment.discount_amount || 0
+      try {
+        let notesData: any = {}
+        if (selectedEntry.notes) {
+          try {
+            notesData = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+          } catch {
+            notesData = {}
+          }
+        }
+        
+        // Only update if notes discount doesn't match invoice discount (or if invoice has discount but notes don't)
+        const notesDiscount = notesData.discount?.discount_amount || 0
+        if (Math.abs(notesDiscount - invoiceDiscount) > 0.01) {
+          // Update discount in notes to match invoice
+          if (!notesData.discount) {
+            notesData.discount = {}
+          }
+          notesData.discount.discount_amount = invoiceDiscount
+          notesData.discount.discount_reason = selectedInvoiceForPayment.discount_reason || notesData.discount.discount_reason || ''
+          
+          const updatedEntry = {
+            ...selectedEntry,
+            discountAmount: invoiceDiscount,
+            discountReason: selectedInvoiceForPayment.discount_reason || selectedEntry.discountReason || '',
+            notes: JSON.stringify(notesData)
+          }
+          setSelectedEntry(updatedEntry)
+        }
+      } catch (syncError) {
+        logger.error('Error syncing discount from invoice to entry notes:', syncError)
+        // Don't fail, just log
+      }
+    }
+  }, [selectedInvoiceForPayment?.discount_amount, selectedInvoiceForPayment?.discount_reason, selectedEntry?.id])
+
+  // Reset to page 1 when search term or filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm])
+    setSettledInvoicesPage(1)
+    setSettledEntriesPage(1)
+    setShowFilterDropdown(false) // Close dropdown when switching tabs
+  }, [searchTerm, timeFilter, customStartDate, customEndDate, activeTab])
+
+  // Close filter dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (showFilterDropdown && !target.closest('[data-filter-dropdown]')) {
+        setShowFilterDropdown(false)
+      }
+    }
+
+    if (showFilterDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showFilterDropdown])
 
   const findInvoiceForEntry = async (vehicleInwardId: string) => {
     try {
-      const { data: invoice } = await supabase
+      const { data: invoice, error: invoiceError } = await supabase
         .from('invoices')
-        .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date')
+        .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
         .eq('vehicle_inward_id', vehicleInwardId)
-        .single()
+        .maybeSingle()  // Returns null if no invoice exists, doesn't throw
       
+      if (invoiceError) {
+        // Only log actual query errors, not "no rows found"
+        if (invoiceError.code !== 'PGRST116') {
+          logger.error('Error finding invoice for entry:', invoiceError)
+        }
+        setSelectedInvoiceForPayment(null)
+        setPaymentHistory([])
+        return
+      }
+
       if (invoice) {
         setSelectedInvoiceForPayment(invoice)
         fetchPaymentHistory(invoice.id)
       } else {
+        // No invoice exists - this is expected, not an error
         setSelectedInvoiceForPayment(null)
         setPaymentHistory([])
       }
     } catch (error) {
-      console.error('Error finding invoice for entry:', error)
+      // Catch any unexpected errors
+      logger.error('Unexpected error finding invoice for entry:', error)
       setSelectedInvoiceForPayment(null)
       setPaymentHistory([])
     }
@@ -183,7 +311,7 @@ export default function AccountsPageClient() {
       const data = await response.json()
       
       if (!response.ok) {
-        console.error('Error fetching summary:', data.error || data.message)
+        logger.error('Error fetching summary:', data.error || data.message)
         // Set default empty summary if there's an error
         setSummary({
           totalInvoiced: 0,
@@ -208,7 +336,7 @@ export default function AccountsPageClient() {
         })
       }
     } catch (error) {
-      console.error('Error fetching summary:', error)
+      logger.error('Error fetching summary:', error)
       // Set default empty summary on error
       setSummary({
         totalInvoiced: 0,
@@ -289,7 +417,7 @@ export default function AccountsPageClient() {
         const { data: invoicesData, error: invoicesError } = await invoiceQuery
         
         if (invoicesError) {
-          console.error('Error fetching settled invoices:', invoicesError)
+          logger.error('Error fetching settled invoices:', invoicesError)
           setInvoices([])
           return
         }
@@ -337,7 +465,7 @@ export default function AccountsPageClient() {
         const { data: deliveredVehicles, error: vehiclesError } = await vehicleInwardQuery
         
         if (vehiclesError) {
-          console.error('Error fetching delivered vehicles:', vehiclesError)
+          logger.error('Error fetching delivered vehicles:', vehiclesError)
           setInvoices([])
           return
         }
@@ -408,10 +536,10 @@ export default function AccountsPageClient() {
       const data = await response.json()
       
       if (!response.ok) {
-        console.error('Error fetching invoices:', data.error || data.message)
+        logger.error('Error fetching invoices:', data.error || data.message)
         // If it's a migration issue, show helpful message
         if (data.message?.includes('migrations')) {
-          console.warn('Database migrations may not have been run yet.')
+          logger.warn('Database migrations may not have been run yet.')
         }
         setInvoices([])
         return
@@ -435,7 +563,7 @@ export default function AccountsPageClient() {
         setInvoices([])
       }
     } catch (error) {
-      console.error('Error fetching invoices:', error)
+      logger.error('Error fetching invoices:', error)
       setInvoices([])
     } finally {
       setInvoicesLoading(false)
@@ -454,7 +582,7 @@ export default function AccountsPageClient() {
         setPaymentHistory([])
       }
     } catch (error) {
-      console.error('Error fetching payment history:', error)
+      logger.error('Error fetching payment history:', error)
       setPaymentHistory([])
     } finally {
       setLoadingPayments(false)
@@ -475,7 +603,7 @@ export default function AccountsPageClient() {
         }
       }
     } catch (error) {
-      console.error('Error loading user role:', error)
+      logger.error('Error loading user role:', error)
     }
   }
 
@@ -586,7 +714,7 @@ export default function AccountsPageClient() {
         setInvoiceReferences([])
       }
     } catch (error) {
-      console.error('Error loading invoice references:', error)
+      logger.error('Error loading invoice references:', error)
       setInvoiceReferences([])
     }
   }
@@ -620,7 +748,7 @@ export default function AccountsPageClient() {
         setDepartmentNames(new Map(departments.map(dept => [dept.id, dept.name])))
       }
     } catch (error) {
-      console.error('Error loading related data:', error)
+      logger.error('Error loading related data:', error)
     }
   }
 
@@ -819,7 +947,7 @@ export default function AccountsPageClient() {
         setCompletedEntries([])
       }
     } catch (error) {
-      console.error('Error fetching completed entries:', error)
+      logger.error('Error fetching completed entries:', error)
       setCompletedEntries([])
     } finally {
       setCompletedLoading(false)
@@ -943,7 +1071,7 @@ export default function AccountsPageClient() {
         setEntries([])
       }
     } catch (error) {
-      console.error('Error fetching account entries:', error)
+      logger.error('Error fetching account entries:', error)
       setEntries([])
     } finally {
       setLoading(false)
@@ -1187,7 +1315,7 @@ export default function AccountsPageClient() {
       alert('Product details updated successfully!')
       await fetchAccountEntries()
     } catch (error: any) {
-      console.error('Error saving products:', error)
+      logger.error('Error saving products:', error)
       alert(`Failed to save products: ${error.message}`)
     } finally {
       setSavingProducts(false)
@@ -1217,7 +1345,7 @@ export default function AccountsPageClient() {
       await loadInvoiceReferences()
       alert('Invoice link added successfully!')
     } catch (error: any) {
-      console.error('Error adding invoice link:', error)
+      logger.error('Error adding invoice link:', error)
       alert(`Failed to add invoice link: ${error.message}`)
     } finally {
       setInvoiceLoading(false)
@@ -1276,7 +1404,7 @@ export default function AccountsPageClient() {
       }
       reader.readAsDataURL(invoiceFile)
     } catch (error: any) {
-      console.error('Error uploading invoice:', error)
+      logger.error('Error uploading invoice:', error)
       alert(`Failed to upload invoice: ${error.message}`)
       setInvoiceLoading(false)
     }
@@ -1336,19 +1464,19 @@ export default function AccountsPageClient() {
             const { notificationQueue } = await import('@/lib/notification-queue')
             const result = await notificationQueue.enqueueInvoiceAdded(selectedEntry.id, vehicleData)
             if (result.success) {
-              console.log('[NotificationQueue] ✅ Invoice added notification enqueued:', {
+              logger.log('[NotificationQueue] ✅ Invoice added notification enqueued:', {
                 queueId: result.queueId,
                 vehicleId: selectedEntry.id
               })
             } else {
-              console.error('[NotificationQueue] ❌ Failed to enqueue invoice added:', {
+              logger.error('[NotificationQueue] ❌ Failed to enqueue invoice added:', {
                 error: result.error,
                 vehicleId: selectedEntry.id
               })
             }
           }
         } catch (notifError) {
-          console.error('[NotificationQueue] ❌ Exception enqueueing invoice notification:', notifError)
+          logger.error('[NotificationQueue] ❌ Exception enqueueing invoice notification:', notifError)
         }
       }
       
@@ -1369,7 +1497,7 @@ export default function AccountsPageClient() {
       alert('Invoice number updated successfully!')
       
     } catch (error: any) {
-      console.error('Error updating invoice number:', error)
+      logger.error('Error updating invoice number:', error)
       alert(`Failed to update invoice number: ${error.message}`)
     } finally {
       setUpdatingInvoiceNumber(false)
@@ -1412,7 +1540,7 @@ export default function AccountsPageClient() {
       // Refresh to ensure consistency
       await fetchAccountEntries()
     } catch (error: any) {
-      console.error('Error updating status:', error)
+      logger.error('Error updating status:', error)
       alert(`Failed to update status: ${error.message}`)
     } finally {
       setUpdatingStatus(false)
@@ -1653,8 +1781,9 @@ export default function AccountsPageClient() {
         {['partial', 'overdue', 'settled'].includes(activeTab) && (
           <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
             {/* Search Bar */}
-            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ position: 'relative', flex: 1, maxWidth: '400px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
                 <Search style={{
                   position: 'absolute',
                   left: '0.75rem',
@@ -1670,18 +1799,20 @@ export default function AccountsPageClient() {
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value)
-                    // Debounce search
-                    setTimeout(() => {
-                      if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
-                        const statusMap: Record<string, string> = {
-                          'entries': 'all',
-                          'partial': 'partial',
-                          'overdue': 'overdue',
-                          'settled': 'paid'
-                        }
-                        fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
+                      // Reset pagination when search changes
+                      if (activeTab === 'settled') {
+                        setSettledInvoicesPage(1)
+                        setSettledEntriesPage(1)
                       }
-                    }, 500)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setSearchTerm('')
+                        if (activeTab === 'settled') {
+                          setSettledInvoicesPage(1)
+                          setSettledEntriesPage(1)
+                        }
+                      }
                   }}
                   style={{
                     width: '100%',
@@ -1697,7 +1828,304 @@ export default function AccountsPageClient() {
                   onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
                 />
               </div>
+                {searchTerm && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm('')
+                      if (activeTab === 'settled') {
+                        setSettledInvoicesPage(1)
+                        setSettledEntriesPage(1)
+                      }
+                    }}
+                    style={{
+                      padding: '0.5rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      borderRadius: '0.375rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#64748b',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#f3f4f6'
+                      e.currentTarget.style.color = '#1f2937'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent'
+                      e.currentTarget.style.color = '#64748b'
+                    }}
+                    title="Clear search"
+                  >
+                    <X style={{ width: '1rem', height: '1rem' }} />
+                  </button>
+                )}
             </div>
+              
+              {/* Filter Button with Dropdown */}
+              <div style={{ position: 'relative' }} data-filter-dropdown>
+                <button
+                  onClick={() => {
+                    const hasActiveFilter = timeFilter !== 'all' || customStartDate || customEndDate
+                    if (hasActiveFilter) {
+                      // If filters are active, clear them
+                      setTimeFilter('all')
+                      setCustomStartDate('')
+                      setCustomEndDate('')
+                    } else {
+                      // Otherwise, toggle dropdown
+                      setShowFilterDropdown(!showFilterDropdown)
+                    }
+                  }}
+                  style={{
+                    padding: '0.625rem 1rem',
+                    backgroundColor: (timeFilter !== 'all' || customStartDate || customEndDate) ? '#eff6ff' : 'white',
+                    color: (timeFilter !== 'all' || customStartDate || customEndDate) ? '#2563eb' : '#64748b',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    transition: 'all 0.2s',
+                    position: 'relative'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!(timeFilter !== 'all' || customStartDate || customEndDate)) {
+                      e.currentTarget.style.backgroundColor = '#f9fafb'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!(timeFilter !== 'all' || customStartDate || customEndDate)) {
+                      e.currentTarget.style.backgroundColor = 'white'
+                    }
+                  }}
+                  title={(timeFilter !== 'all' || customStartDate || customEndDate) ? 'Clear filters' : 'Filter options'}
+                >
+                  <Filter style={{ width: '1rem', height: '1rem' }} />
+                  {(timeFilter !== 'all' || customStartDate || customEndDate) ? 'Clear Filters' : 'Filter'}
+                  {(timeFilter !== 'all' || customStartDate || customEndDate) && (
+                    <span style={{
+                      position: 'absolute',
+                      top: '-0.25rem',
+                      right: '-0.25rem',
+                      width: '0.5rem',
+                      height: '0.5rem',
+                      backgroundColor: '#2563eb',
+                      borderRadius: '50%',
+                      border: '2px solid white'
+                    }} />
+                  )}
+                </button>
+                
+                {/* Filter Dropdown */}
+                {showFilterDropdown && !(timeFilter !== 'all' || customStartDate || customEndDate) && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '0.5rem',
+                      backgroundColor: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.5rem',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                      padding: '1rem',
+                      minWidth: '280px',
+                      zIndex: 1000
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div style={{ marginBottom: '1rem' }}>
+                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem' }}>
+                        Filter by Time Period
+                      </div>
+                      <select
+                        value={timeFilter}
+                        onChange={(e) => {
+                          setTimeFilter(e.target.value)
+                          if (e.target.value !== 'custom') {
+                            setCustomStartDate('')
+                            setCustomEndDate('')
+                            // Close dropdown after a short delay to show the selection
+                            const timeoutId = setTimeout(() => setShowFilterDropdown(false), 100)
+                            timeoutRefs.current.push(timeoutId)
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '0.625rem 0.75rem',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          backgroundColor: 'white',
+                          cursor: 'pointer',
+                          outline: 'none'
+                        }}
+                      >
+                        <option value="all">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="year">This Year</option>
+                        <option value="custom">Custom Range</option>
+                      </select>
+                    </div>
+                    
+                    {timeFilter === 'custom' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: '500' }}>
+                            Start Date
+                          </label>
+                          <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={(e) => setCustomStartDate(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.625rem 0.75rem',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: '500' }}>
+                            End Date
+                          </label>
+                          <input
+                            type="date"
+                            value={customEndDate}
+                            onChange={(e) => setCustomEndDate(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.625rem 0.75rem',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => {
+                          setShowFilterDropdown(false)
+                        }}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          backgroundColor: '#f3f4f6',
+                          color: '#374151',
+                          border: 'none',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '500',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowFilterDropdown(false)
+                        }}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          backgroundColor: '#2563eb',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '500',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Filter Options */}
+            {(timeFilter !== 'all' || customStartDate || customEndDate) && (
+              <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f9fafb', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Time Period:</span>
+                  <select
+                    value={timeFilter}
+                    onChange={(e) => {
+                      setTimeFilter(e.target.value)
+                      if (e.target.value !== 'custom') {
+                        setCustomStartDate('')
+                        setCustomEndDate('')
+                      }
+                    }}
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem',
+                      backgroundColor: 'white',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+                </div>
+                {timeFilter === 'custom' && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '0.875rem', color: '#64748b' }}>From:</span>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        style={{
+                          padding: '0.5rem 0.75rem',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '0.875rem', color: '#64748b' }}>To:</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        style={{
+                          padding: '0.5rem 0.75rem',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Invoices Table */}
             {invoicesLoading && activeTab !== 'settled' ? (
@@ -1712,7 +2140,23 @@ export default function AccountsPageClient() {
               <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
                 No {activeTab} invoices found
               </div>
-            ) : (
+            ) : invoices.length === 0 && activeTab === 'settled' ? (
+              // Don't show empty table for settled tab if there are no invoices
+              null
+            ) : (() => {
+              // Pagination logic for settled tab
+              const settledInvoicesToShow = activeTab === 'settled' ? (() => {
+                const startIndex = (settledInvoicesPage - 1) * entriesPerPage
+                const endIndex = startIndex + entriesPerPage
+                return invoices.slice(startIndex, endIndex)
+              })() : invoices
+              
+              const totalPages = activeTab === 'settled' ? Math.ceil(invoices.length / entriesPerPage) : 1
+              const startIndex = activeTab === 'settled' ? (settledInvoicesPage - 1) * entriesPerPage : 0
+              const endIndex = activeTab === 'settled' ? startIndex + entriesPerPage : invoices.length
+              
+              return (
+              <>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
@@ -1730,7 +2174,7 @@ export default function AccountsPageClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.map((invoice: any) => {
+                      {settledInvoicesToShow.map((invoice: any) => {
                       const vehicle = invoice.vehicle_inward?.vehicles
                       const customer = vehicle?.customers
                       const statusColors: Record<string, string> = {
@@ -1832,15 +2276,120 @@ export default function AccountsPageClient() {
                     })}
                   </tbody>
                 </table>
+                </div>
+                
+                {/* Pagination for Settled Invoices */}
+                {activeTab === 'settled' && invoices.length > 0 && totalPages > 1 && (
+                  <div style={{ padding: '1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                      Showing {startIndex + 1} to {Math.min(endIndex, invoices.length)} of {invoices.length} invoices
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => setSettledInvoicesPage(prev => Math.max(1, prev - 1))}
+                        disabled={settledInvoicesPage === 1}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          backgroundColor: settledInvoicesPage === 1 ? '#f3f4f6' : 'white',
+                          color: settledInvoicesPage === 1 ? '#9ca3af' : '#374151',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '500',
+                          cursor: settledInvoicesPage === 1 ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <ChevronLeft style={{ width: '1rem', height: '1rem' }} />
+                      </button>
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum
+                        if (totalPages <= 5) {
+                          pageNum = i + 1
+                        } else if (settledInvoicesPage <= 3) {
+                          pageNum = i + 1
+                        } else if (settledInvoicesPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i
+                        } else {
+                          pageNum = settledInvoicesPage - 2 + i
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setSettledInvoicesPage(pageNum)}
+                            style={{
+                              padding: '0.5rem 1rem',
+                              backgroundColor: settledInvoicesPage === pageNum ? '#2563eb' : 'white',
+                              color: settledInvoicesPage === pageNum ? 'white' : '#374151',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.875rem',
+                              fontWeight: settledInvoicesPage === pageNum ? '600' : '500',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (settledInvoicesPage !== pageNum) {
+                                e.currentTarget.style.backgroundColor = '#f9fafb'
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (settledInvoicesPage !== pageNum) {
+                                e.currentTarget.style.backgroundColor = 'white'
+                              }
+                            }}
+                          >
+                            {pageNum}
+                          </button>
+                        )
+                      })}
+                      <button
+                        onClick={() => setSettledInvoicesPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={settledInvoicesPage === totalPages}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          backgroundColor: settledInvoicesPage === totalPages ? '#f3f4f6' : 'white',
+                          color: settledInvoicesPage === totalPages ? '#9ca3af' : '#374151',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '500',
+                          cursor: settledInvoicesPage === totalPages ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <ChevronRight style={{ width: '1rem', height: '1rem' }} />
+                      </button>
+                    </div>
               </div>
             )}
+              </>
+              )
+            })()}
 
             {/* Completed Entries Section (for Settled/Completed tab) */}
-            {activeTab === 'settled' && completedEntries.length > 0 && (
-              <div style={{ marginTop: '2rem', borderTop: '2px solid #e2e8f0', paddingTop: '2rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '1rem' }}>
-                  Completed Entries ({completedEntries.length})
-                </h3>
+            {activeTab === 'settled' && (() => {
+              // Filter out entries that already have settled invoices (to avoid duplication)
+              const entriesWithoutSettledInvoices = completedEntries.filter(entry => 
+                !invoices.some((inv: any) => inv.vehicle_inward_id === entry.id)
+              )
+              return entriesWithoutSettledInvoices.length > 0 && (
+                <div style={{ marginTop: '2rem', borderTop: '2px solid #e2e8f0', paddingTop: '2rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '1rem' }}>
+                    Completed Entries ({(() => {
+                      const filtered = entriesWithoutSettledInvoices.filter(entry => {
+                        if (!searchTerm) return true
+                        const searchLower = searchTerm.toLowerCase()
+                        return (
+                          entry.customerName.toLowerCase().includes(searchLower) ||
+                          entry.vehicleNumber.toLowerCase().includes(searchLower) ||
+                          entry.shortId?.toLowerCase().includes(searchLower) ||
+                          entry.invoiceNumber?.toLowerCase().includes(searchLower)
+                        )
+                      })
+                      return filtered.length
+                    })()})
+                  </h3>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
@@ -1855,8 +2404,9 @@ export default function AccountsPageClient() {
                       </tr>
                     </thead>
                     <tbody>
-                      {completedEntries
-                        .filter(entry => {
+                      {(() => {
+                        // Apply search filter
+                        const filteredEntries = entriesWithoutSettledInvoices.filter(entry => {
                           if (!searchTerm) return true
                           const searchLower = searchTerm.toLowerCase()
                           return (
@@ -1866,7 +2416,12 @@ export default function AccountsPageClient() {
                             entry.invoiceNumber?.toLowerCase().includes(searchLower)
                           )
                         })
-                        .map((entry) => (
+                        
+                        // Apply pagination
+                        const startIndex = (settledEntriesPage - 1) * entriesPerPage
+                        const endIndex = startIndex + entriesPerPage
+                        return filteredEntries.slice(startIndex, endIndex)
+                      })().map((entry) => (
                         <tr
                           key={entry.id}
                           onClick={() => setSelectedEntry(entry)}
@@ -1940,8 +2495,111 @@ export default function AccountsPageClient() {
                     </tbody>
                   </table>
                 </div>
+                
+                {/* Pagination for Completed Entries */}
+                {(() => {
+                  const filteredEntries = entriesWithoutSettledInvoices.filter(entry => {
+                    if (!searchTerm) return true
+                    const searchLower = searchTerm.toLowerCase()
+                    return (
+                      entry.customerName.toLowerCase().includes(searchLower) ||
+                      entry.vehicleNumber.toLowerCase().includes(searchLower) ||
+                      entry.shortId?.toLowerCase().includes(searchLower) ||
+                      entry.invoiceNumber?.toLowerCase().includes(searchLower)
+                    )
+                  })
+                  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage)
+                  const startIndex = (settledEntriesPage - 1) * entriesPerPage
+                  const endIndex = startIndex + entriesPerPage
+                  
+                  return totalPages > 1 && (
+                    <div style={{ padding: '1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                        Showing {startIndex + 1} to {Math.min(endIndex, filteredEntries.length)} of {filteredEntries.length} entries
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setSettledEntriesPage(prev => Math.max(1, prev - 1))}
+                          disabled={settledEntriesPage === 1}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            backgroundColor: settledEntriesPage === 1 ? '#f3f4f6' : 'white',
+                            color: settledEntriesPage === 1 ? '#9ca3af' : '#374151',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            cursor: settledEntriesPage === 1 ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <ChevronLeft style={{ width: '1rem', height: '1rem' }} />
+                        </button>
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pageNum
+                          if (totalPages <= 5) {
+                            pageNum = i + 1
+                          } else if (settledEntriesPage <= 3) {
+                            pageNum = i + 1
+                          } else if (settledEntriesPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i
+                          } else {
+                            pageNum = settledEntriesPage - 2 + i
+                          }
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => setSettledEntriesPage(pageNum)}
+                              style={{
+                                padding: '0.5rem 1rem',
+                                backgroundColor: settledEntriesPage === pageNum ? '#2563eb' : 'white',
+                                color: settledEntriesPage === pageNum ? 'white' : '#374151',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.875rem',
+                                fontWeight: settledEntriesPage === pageNum ? '600' : '500',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (settledEntriesPage !== pageNum) {
+                                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (settledEntriesPage !== pageNum) {
+                                  e.currentTarget.style.backgroundColor = 'white'
+                                }
+                              }}
+                            >
+                              {pageNum}
+                            </button>
+                          )
+                        })}
+                        <button
+                          onClick={() => setSettledEntriesPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={settledEntriesPage === totalPages}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            backgroundColor: settledEntriesPage === totalPages ? '#f3f4f6' : 'white',
+                            color: settledEntriesPage === totalPages ? '#9ca3af' : '#374151',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            cursor: settledEntriesPage === totalPages ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <ChevronRight style={{ width: '1rem', height: '1rem' }} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
-            )}
+            )
+            })()}
           </div>
         )}
 
@@ -2666,11 +3324,11 @@ export default function AccountsPageClient() {
                       <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Phone</div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.customerPhone}</div>
                     </div>
-                    <div>
+                      <div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Vehicle Number</div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.vehicleNumber}</div>
-                    </div>
-                    <div>
+                      </div>
+              <div>
                       <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Model</div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.model}</div>
                     </div>
@@ -2717,7 +3375,7 @@ export default function AccountsPageClient() {
                 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
                     {selectedEntry.manager && (
-                      <div>
+                    <div>
                         <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Assigned Manager</div>
                         <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
                           {managerNames.get(selectedEntry.manager) || selectedEntry.manager}
@@ -3096,12 +3754,12 @@ export default function AccountsPageClient() {
                 })()}
 
                 {/* Invoice Section */}
-                <div>
+              <div>
                   <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <FileText style={{ width: '0.875rem', height: '0.875rem' }} />
                     Invoice
-                  </h3>
-                  <div style={{ 
+                </h3>
+                <div style={{ 
                     backgroundColor: 'white', 
                     borderRadius: '0.5rem', 
                     padding: '1rem', 
@@ -3213,6 +3871,294 @@ export default function AccountsPageClient() {
                         </div>
                       )
                     )}
+                    
+                    {/* Invoice URL and PDF Upload Section - Collapsible Dropdown */}
+                    {(userRole === 'admin' || userRole === 'accountant') && (
+                      <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+                        {/* Dropdown Header */}
+                        <button
+                          onClick={() => setShowInvoiceSection(!showInvoiceSection)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '0.5rem',
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            borderRadius: '0.375rem',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f9fafb'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent'
+                          }}
+                        >
+                          <div style={{ fontSize: '0.8125rem', fontWeight: '600', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <FileText style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                            Invoice Management
+                            {invoiceReferences.length > 0 && (
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#64748b', 
+                                fontWeight: 'normal',
+                                backgroundColor: '#e5e7eb',
+                                padding: '0.125rem 0.375rem',
+                                borderRadius: '0.75rem'
+                              }}>
+                                {invoiceReferences.length} {invoiceReferences.length === 1 ? 'reference' : 'references'}
+                              </span>
+                            )}
+                          </div>
+                          {showInvoiceSection ? (
+                            <ChevronUp style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                          ) : (
+                            <ChevronDown style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                          )}
+                        </button>
+
+                        {/* Collapsible Content */}
+                        {showInvoiceSection && (
+                          <div style={{ marginTop: '0.75rem' }}>
+                            {/* Add Invoice URL */}
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: '500' }}>
+                                Add Invoice URL
+                              </div>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <input
+                              type="url"
+                              value={invoiceLink}
+                              onChange={(e) => setInvoiceLink(e.target.value)}
+                              placeholder="https://example.com/invoice.pdf"
+                              style={{
+                                flex: 1,
+                                padding: '0.5rem',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.8125rem',
+                                outline: 'none'
+                              }}
+                              onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                              onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && invoiceLink.trim()) {
+                                  handleAddInvoiceLink()
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={handleAddInvoiceLink}
+                              disabled={!invoiceLink.trim() || invoiceLoading}
+                              style={{
+                                padding: '0.5rem 0.75rem',
+                                backgroundColor: invoiceLink.trim() && !invoiceLoading ? '#0284c7' : '#9ca3af',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '500',
+                                cursor: invoiceLink.trim() && !invoiceLoading ? 'pointer' : 'not-allowed',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <LinkIcon style={{ width: '0.75rem', height: '0.75rem' }} />
+                              {invoiceLoading ? 'Adding...' : 'Add URL'}
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Upload Invoice PDF */}
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: '500' }}>
+                            Upload Invoice PDF
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <label
+                              htmlFor="invoice-pdf-upload"
+                              onClick={(e) => {
+                                if (invoiceFile) {
+                                  e.preventDefault()
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: '0.5rem',
+                                border: '1px dashed #d1d5db',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.8125rem',
+                                cursor: 'pointer',
+                                backgroundColor: '#f9fafb',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                color: invoiceFile ? '#059669' : '#64748b',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!invoiceFile) {
+                                  e.currentTarget.style.borderColor = '#3b82f6'
+                                  e.currentTarget.style.backgroundColor = '#eff6ff'
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!invoiceFile) {
+                                  e.currentTarget.style.borderColor = '#d1d5db'
+                                  e.currentTarget.style.backgroundColor = '#f9fafb'
+                                }
+                              }}
+                            >
+                              <Upload style={{ width: '0.875rem', height: '0.875rem' }} />
+                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {invoiceFile ? invoiceFile.name : 'Choose PDF file...'}
+                              </span>
+                              {invoiceFile && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setInvoiceFile(null)
+                                    // Reset file input
+                                    const fileInput = document.getElementById('invoice-pdf-upload') as HTMLInputElement
+                                    if (fileInput) {
+                                      fileInput.value = ''
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '0.25rem',
+                                    backgroundColor: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    color: '#dc2626'
+                                  }}
+                                >
+                                  <X style={{ width: '0.75rem', height: '0.75rem' }} />
+                                </button>
+                              )}
+                            </label>
+                            <input
+                              id="invoice-pdf-upload"
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+                                    setInvoiceFile(file)
+                                  } else {
+                                    alert('Please select a PDF file')
+                                    e.target.value = ''
+                                  }
+                                }
+                              }}
+                              style={{ display: 'none' }}
+                            />
+                            <button
+                              onClick={handleUploadInvoice}
+                              disabled={!invoiceFile || invoiceLoading}
+                              style={{
+                                padding: '0.5rem 0.75rem',
+                                backgroundColor: invoiceFile && !invoiceLoading ? '#059669' : '#9ca3af',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '500',
+                                cursor: invoiceFile && !invoiceLoading ? 'pointer' : 'not-allowed',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <FileImage style={{ width: '0.75rem', height: '0.75rem' }} />
+                              {invoiceLoading ? 'Uploading...' : 'Upload'}
+                            </button>
+                          </div>
+                        </div>
+                        
+                            {/* Display Invoice References */}
+                            {invoiceReferences.length > 0 && (
+                              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: '500' }}>
+                                  Invoice References ({invoiceReferences.length})
+                                </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {invoiceReferences.map((ref, index) => (
+                                <div
+                                  key={index}
+                                  style={{
+                                    padding: '0.5rem',
+                                    backgroundColor: '#f9fafb',
+                                    borderRadius: '0.375rem',
+                                    border: '1px solid #e5e7eb',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    fontSize: '0.8125rem'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                                    {ref.type === 'link' ? (
+                                      <LinkIcon style={{ width: '0.875rem', height: '0.875rem', color: '#2563eb', flexShrink: 0 }} />
+                                    ) : (
+                                      <FileImage style={{ width: '0.875rem', height: '0.875rem', color: '#059669', flexShrink: 0 }} />
+                                    )}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {ref.type === 'link' ? (
+                                        <a
+                                          href={ref.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{ color: '#2563eb', textDecoration: 'none' }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {ref.url}
+                                        </a>
+                                      ) : (
+                                        ref.fileName || 'Invoice File'
+                                      )}
+                                    </span>
+                                  </div>
+                                  {ref.type === 'file' && (
+                                    <a
+                                      href={ref.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        padding: '0.25rem 0.5rem',
+                                        backgroundColor: '#eff6ff',
+                                        color: '#2563eb',
+                                        borderRadius: '0.375rem',
+                                        fontSize: '0.75rem',
+                                        textDecoration: 'none',
+                                        fontWeight: '500',
+                                        marginLeft: '0.5rem',
+                                        flexShrink: 0
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      View
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -3254,131 +4200,278 @@ export default function AccountsPageClient() {
                             )
                           })()}
                         </div>
-                        <button
-                          onClick={() => {
-                            setEditingDiscount(true)
-                            if (selectedInvoiceForPayment) {
-                              setDiscountAmount((selectedInvoiceForPayment.discount_amount || 0).toString())
-                              setDiscountOfferedBy('')
-                              setDiscountReason(selectedInvoiceForPayment.discount_reason || '')
-                            } else if (selectedEntry) {
-                              try {
-                                const notes = selectedEntry.notes ? (typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes) : {}
-                                const discountData = notes.discount || {}
-                                setDiscountAmount((discountData.discount_amount || 0).toString())
-                                setDiscountOfferedBy(discountData.discount_offered_by || '')
-                                setDiscountReason(discountData.discount_reason || '')
-                              } catch {
-                                setDiscountAmount('')
-                                setDiscountOfferedBy('')
-                                setDiscountReason('')
-                              }
-                            }
-                          }}
-                          style={{
-                            padding: '0.375rem 0.75rem',
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
-                            border: 'none',
-                            borderRadius: '0.375rem',
-                            fontSize: '0.75rem',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.25rem'
-                          }}
-                        >
-                          <Edit2 style={{ width: '0.75rem', height: '0.75rem' }} />
-                          {(() => {
-                            const currentDiscount = selectedInvoiceForPayment?.discount_amount || 
-                              (selectedEntry?.notes ? (() => {
-                                try {
-                                  const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
-                                  return notes.discount?.discount_amount || 0
-                                } catch {
-                                  return 0
-                                }
-                              })() : 0)
-                            return currentDiscount > 0 ? 'Edit' : 'Add'
-                          })()}
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
-                            Amount (Rs.)
-                          </label>
-                          <input
-                            type="number"
-                            value={discountAmount}
-                            onChange={(e) => setDiscountAmount(e.target.value)}
-                            min="0"
-                            step="0.01"
-                            placeholder="Enter discount"
-                            style={{
-                              width: '100%',
-                              padding: '0.5rem',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '0.375rem',
-                              fontSize: '0.8125rem'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
-                            Reason
-                          </label>
-                          <textarea
-                            value={discountReason}
-                            onChange={(e) => setDiscountReason(e.target.value)}
-                            placeholder="Reason for discount"
-                            rows={2}
-                            style={{
-                              width: '100%',
-                              padding: '0.5rem',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '0.375rem',
-                              fontSize: '0.8125rem',
-                              resize: 'vertical'
-                            }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                          <button
-                            onClick={() => {
-                              setEditingDiscount(false)
+                      <button
+                        onClick={() => {
+                          setEditingDiscount(true)
+                          if (selectedInvoiceForPayment) {
+                            setDiscountAmount((selectedInvoiceForPayment.discount_amount || 0).toString())
+                            setDiscountOfferedBy('')
+                            setDiscountReason(selectedInvoiceForPayment.discount_reason || '')
+                          } else if (selectedEntry) {
+                            try {
+                              const notes = selectedEntry.notes ? (typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes) : {}
+                              const discountData = notes.discount || {}
+                              setDiscountAmount((discountData.discount_amount || 0).toString())
+                              setDiscountOfferedBy(discountData.discount_offered_by || '')
+                              setDiscountReason(discountData.discount_reason || '')
+                            } catch {
                               setDiscountAmount('')
                               setDiscountOfferedBy('')
                               setDiscountReason('')
-                            }}
-                            style={{
+                            }
+                          }
+                        }}
+                        style={{
+                          padding: '0.375rem 0.75rem',
+                          backgroundColor: '#fef3c7',
+                          color: '#92400e',
+                          border: 'none',
+                          borderRadius: '0.375rem',
+                            fontSize: '0.75rem',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem'
+                        }}
+                      >
+                          <Edit2 style={{ width: '0.75rem', height: '0.75rem' }} />
+                        {(() => {
+                          const currentDiscount = selectedInvoiceForPayment?.discount_amount || 
+                            (selectedEntry?.notes ? (() => {
+                              try {
+                                const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                                return notes.discount?.discount_amount || 0
+                              } catch {
+                                return 0
+                              }
+                            })() : 0)
+                            return currentDiscount > 0 ? 'Edit' : 'Add'
+                        })()}
+                      </button>
+                  </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
+                            Amount (Rs.)
+                        </label>
+                        <input
+                          type="number"
+                          value={discountAmount}
+                          onChange={(e) => setDiscountAmount(e.target.value)}
+                          min="0"
+                          step="0.01"
+                            placeholder="Enter discount"
+                          style={{
+                            width: '100%',
+                              padding: '0.5rem',
+                            border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem'
+                          }}
+                        />
+                      </div>
+                      <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
+                            Reason
+                        </label>
+                        <textarea
+                          value={discountReason}
+                          onChange={(e) => setDiscountReason(e.target.value)}
+                            placeholder="Reason for discount"
+                            rows={2}
+                          style={{
+                            width: '100%',
+                              padding: '0.5rem',
+                            border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem',
+                            resize: 'vertical'
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => {
+                            setEditingDiscount(false)
+                            setDiscountAmount('')
+                            setDiscountOfferedBy('')
+                            setDiscountReason('')
+                          }}
+                          style={{
                               padding: '0.5rem 0.75rem',
-                              backgroundColor: '#f3f4f6',
-                              color: '#374151',
-                              border: 'none',
+                            backgroundColor: '#f3f4f6',
+                            color: '#374151',
+                            border: 'none',
                               borderRadius: '0.375rem',
                               fontSize: '0.75rem',
-                              fontWeight: '500',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (!selectedEntry) return
-                              try {
-                                setSavingDiscount(true)
-                                const discount = parseFloat(discountAmount || '0')
+                            fontWeight: '500',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!selectedEntry) return
+                            try {
+                              setSavingDiscount(true)
+                              const discount = parseFloat(discountAmount || '0')
+                              
+                              if (selectedInvoiceForPayment) {
+                                const subtotal = selectedEntry.products.reduce((sum, p) => sum + p.price, 0) || parseFloat(selectedInvoiceForPayment.total_amount || 0)
+                                const tax = parseFloat(selectedInvoiceForPayment.tax_amount || 0)
+                                const newTotal = subtotal - discount + tax
                                 
+                                const tenantId = getCurrentTenantId()
+                                const isSuper = isSuperAdmin()
+                                
+                                let invoiceUpdateQuery = supabase
+                                  .from('invoices')
+                                  .update({
+                                    discount_amount: discount,
+                                    discount_reason: discountReason,
+                                    total_amount: newTotal,
+                                    balance_amount: newTotal - parseFloat(selectedInvoiceForPayment.paid_amount || 0)
+                                  })
+                                  .eq('id', selectedInvoiceForPayment.id)
+                                
+                                if (!isSuper && tenantId) {
+                                  invoiceUpdateQuery = invoiceUpdateQuery.eq('tenant_id', tenantId)
+                                }
+                                
+                                const { error } = await invoiceUpdateQuery
+                                
+                                if (error) throw error
+                                
+                                let invoiceFetchQuery = supabase
+                                  .from('invoices')
+                                  .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                                  .eq('id', selectedInvoiceForPayment.id)
+                                
+                                if (!isSuper && tenantId) {
+                                  invoiceFetchQuery = invoiceFetchQuery.eq('tenant_id', tenantId)
+                                }
+                                
+                                const { data: updatedInvoice, error: fetchError } = await invoiceFetchQuery.maybeSingle()
+                                
+                                if (fetchError && fetchError.code !== 'PGRST116') {
+                                  logger.error('Error fetching updated invoice:', fetchError)
+                                }
+                                
+                                if (updatedInvoice) {
+                                  setSelectedInvoiceForPayment(updatedInvoice)
+                                  // Also sync discount to selectedEntry.notes to keep both sources in sync
+                                  // This ensures consistent display whether checking invoice or notes
+                                  if (selectedEntry) {
+                                    try {
+                                      let notesData: any = {}
+                                      if (selectedEntry.notes) {
+                                        try {
+                                          notesData = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                                        } catch {
+                                          notesData = {}
+                                        }
+                                      }
+                                      
+                                      // Update discount in notes to match invoice
+                                      if (!notesData.discount) {
+                                        notesData.discount = {}
+                                      }
+                                      notesData.discount.discount_amount = discount
+                                      notesData.discount.discount_reason = discountReason
+                                      
+                                      const updatedEntryWithNotes = {
+                                        ...selectedEntry,
+                                        discountAmount: discount,
+                                        discountReason: discountReason,
+                                        notes: JSON.stringify(notesData)
+                                      }
+                                      setSelectedEntry(updatedEntryWithNotes)
+                                    } catch (syncError) {
+                                      logger.error('Error syncing discount to entry notes:', syncError)
+                                      // Don't fail the operation, just log
+                                    }
+                                  }
+                                  alert('Discount saved successfully!')
+                                } else {
+                                  alert('Discount saved, but could not refresh invoice data. Please refresh the page.')
+                                }
+                              } else {
+                                const discountPercentage = selectedEntry.totalAmount > 0 ? (discount / selectedEntry.totalAmount) * 100 : 0
+                                const discountData = {
+                                  discount_amount: discount,
+                                  discount_percentage: discountPercentage,
+                                  discount_offered_by: discountOfferedBy,
+                                  discount_reason: discountReason
+                                }
+                                
+                                const tenantId = getCurrentTenantId()
+                                const isSuper = isSuperAdmin()
+                                
+                                let notesQuery = supabase
+                                  .from('vehicle_inward')
+                                  .select('notes')
+                                  .eq('id', selectedEntry.id)
+                                
+                                if (!isSuper && tenantId) {
+                                  notesQuery = notesQuery.eq('tenant_id', tenantId)
+                                }
+                                
+                                const { data: existing, error: notesError } = await notesQuery.maybeSingle()
+                                
+                                if (notesError && notesError.code !== 'PGRST116') {
+                                  throw notesError
+                                }
+                                
+                                let notesData: any = {}
+                                if (existing?.notes) {
+                                  try {
+                                    notesData = typeof existing.notes === 'string' ? JSON.parse(existing.notes) : existing.notes
+                                  } catch {
+                                    notesData = {}
+                                  }
+                                }
+                                
+                                notesData.discount = discountData
+                                
+                                let updateNotesQuery = supabase
+                                  .from('vehicle_inward')
+                                  .update({ notes: JSON.stringify(notesData) })
+                                  .eq('id', selectedEntry.id)
+                                
+                                // Apply tenant filter for security
+                                if (!isSuper && tenantId) {
+                                  updateNotesQuery = updateNotesQuery.eq('tenant_id', tenantId)
+                                }
+                                
+                                const { error } = await updateNotesQuery
+                                
+                                if (error) throw error
+                                
+                                const updatedEntry = {
+                                  ...selectedEntry,
+                                  discountAmount: discount,
+                                  discountPercentage: discountPercentage,
+                                  discountOfferedBy: discountOfferedBy,
+                                  discountReason: discountReason,
+                                  finalAmount: selectedEntry.totalAmount - discount,
+                                  notes: JSON.stringify(notesData)
+                                }
+                                setSelectedEntry(updatedEntry)
+                                
+                                // If invoice exists, also update invoice discount to keep them in sync
                                 if (selectedInvoiceForPayment) {
                                   const subtotal = selectedEntry.products.reduce((sum, p) => sum + p.price, 0) || parseFloat(selectedInvoiceForPayment.total_amount || 0)
                                   const tax = parseFloat(selectedInvoiceForPayment.tax_amount || 0)
                                   const newTotal = subtotal - discount + tax
                                   
-                                  const { error } = await supabase
+                                  // Sync discount to invoice with tenant filtering
+                                  const syncTenantId = getCurrentTenantId()
+                                  const syncIsSuper = isSuperAdmin()
+                                  
+                                  let invoiceSyncUpdateQuery = supabase
                                     .from('invoices')
                                     .update({
                                       discount_amount: discount,
@@ -3388,108 +4481,65 @@ export default function AccountsPageClient() {
                                     })
                                     .eq('id', selectedInvoiceForPayment.id)
                                   
-                                  if (error) throw error
-                                  
-                                  const { data: updatedInvoice } = await supabase
-                                    .from('invoices')
-                                    .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
-                                    .eq('id', selectedInvoiceForPayment.id)
-                                    .single()
-                                  
-                                  if (updatedInvoice) {
-                                    setSelectedInvoiceForPayment(updatedInvoice)
+                                  if (!syncIsSuper && syncTenantId) {
+                                    invoiceSyncUpdateQuery = invoiceSyncUpdateQuery.eq('tenant_id', syncTenantId)
                                   }
                                   
-                                  alert('Discount saved successfully!')
-                                } else {
-                                  const discountPercentage = selectedEntry.totalAmount > 0 ? (discount / selectedEntry.totalAmount) * 100 : 0
-                                  const discountData = {
-                                    discount_amount: discount,
-                                    discount_percentage: discountPercentage,
-                                    discount_offered_by: discountOfferedBy,
-                                    discount_reason: discountReason
-                                  }
+                                  const { error: invoiceUpdateError } = await invoiceSyncUpdateQuery
                                   
-                                  const tenantId = getCurrentTenantId()
-                                  const isSuper = isSuperAdmin()
-                                  
-                                  let notesQuery = supabase
-                                    .from('vehicle_inward')
-                                    .select('notes')
-                                    .eq('id', selectedEntry.id)
-                                  
-                                  if (!isSuper && tenantId) {
-                                    notesQuery = notesQuery.eq('tenant_id', tenantId)
-                                  }
-                                  
-                                  const { data: existing } = await notesQuery.single()
-                                  
-                                  let notesData: any = {}
-                                  if (existing?.notes) {
-                                    try {
-                                      notesData = typeof existing.notes === 'string' ? JSON.parse(existing.notes) : existing.notes
-                                    } catch {
-                                      notesData = {}
+                                  if (invoiceUpdateError) {
+                                    logger.error('Error syncing discount to invoice:', invoiceUpdateError)
+                                    // Don't fail the whole operation, just log the error
+                                  } else {
+                                    // Refresh invoice to get updated data with tenant filtering
+                                    let invoiceRefreshQuery = supabase
+                                      .from('invoices')
+                                      .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                                      .eq('id', selectedInvoiceForPayment.id)
+                                    
+                                    if (!syncIsSuper && syncTenantId) {
+                                      invoiceRefreshQuery = invoiceRefreshQuery.eq('tenant_id', syncTenantId)
+                                    }
+                                    
+                                    const { data: refreshedInvoice } = await invoiceRefreshQuery.maybeSingle()
+                                    
+                                    if (refreshedInvoice) {
+                                      setSelectedInvoiceForPayment(refreshedInvoice)
                                     }
                                   }
-                                  
-                                  notesData.discount = discountData
-                                  
-                                  let updateNotesQuery = supabase
-                                    .from('vehicle_inward')
-                                    .update({ notes: JSON.stringify(notesData) })
-                                    .eq('id', selectedEntry.id)
-                                  
-                                  if (!isSuper && tenantId) {
-                                    updateNotesQuery = updateNotesQuery.eq('tenant_id', tenantId)
-                                  }
-                                  
-                                  const { error } = await updateNotesQuery
-                                  
-                                  if (error) throw error
-                                  
-                                  const updatedEntry = {
-                                    ...selectedEntry,
-                                    discountAmount: discount,
-                                    discountPercentage: discountPercentage,
-                                    discountOfferedBy: discountOfferedBy,
-                                    discountReason: discountReason,
-                                    finalAmount: selectedEntry.totalAmount - discount,
-                                    notes: JSON.stringify(notesData)
-                                  }
-                                  setSelectedEntry(updatedEntry)
-                                  
-                                  alert('Discount information saved successfully!')
                                 }
                                 
-                                setEditingDiscount(false)
-                              } catch (error: any) {
-                                console.error('Error saving discount:', error)
-                                alert(`Failed to save discount: ${error.message}`)
-                              } finally {
-                                setSavingDiscount(false)
+                                alert('Discount information saved successfully!')
                               }
-                            }}
-                            disabled={savingDiscount}
-                            style={{
+                              
+                              setEditingDiscount(false)
+                            } catch (error: any) {
+                              logger.error('Error saving discount:', error)
+                              alert(`Failed to save discount: ${error.message}`)
+                            } finally {
+                              setSavingDiscount(false)
+                            }
+                          }}
+                          disabled={savingDiscount}
+                          style={{
                               padding: '0.5rem 0.75rem',
-                              backgroundColor: savingDiscount ? '#9ca3af' : '#059669',
-                              color: 'white',
-                              border: 'none',
+                            backgroundColor: savingDiscount ? '#9ca3af' : '#059669',
+                            color: 'white',
+                            border: 'none',
                               borderRadius: '0.375rem',
                               fontSize: '0.75rem',
-                              fontWeight: '500',
-                              cursor: savingDiscount ? 'not-allowed' : 'pointer'
-                            }}
-                          >
+                            fontWeight: '500',
+                            cursor: savingDiscount ? 'not-allowed' : 'pointer'
+                          }}
+                        >
                             <Save style={{ width: '0.75rem', height: '0.75rem', display: 'inline', marginRight: '0.25rem' }} />
                             {savingDiscount ? 'Saving...' : 'Save'}
-                          </button>
-                        </div>
+                        </button>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
+              </div>
 
                 {/* Payment Details - Compact */}
                 {selectedInvoiceForPayment ? (
@@ -3518,45 +4568,183 @@ export default function AccountsPageClient() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669', fontWeight: '600' }}>
                               <span>Paid:</span>
                               <span>₹{paid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            </div>
+                                </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', color: balance > 0 ? '#dc2626' : '#059669', fontWeight: '600' }}>
                               <span>Balance:</span>
-                              <span>₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            </div>
+                                  <span>₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
                             <div style={{ width: '100%', height: '0.5rem', backgroundColor: '#e5e7eb', borderRadius: '0.25rem', overflow: 'hidden', marginTop: '0.25rem' }}>
-                              <div 
-                                style={{ 
-                                  width: `${total > 0 ? (paid / total) * 100 : 0}%`,
-                                  height: '100%',
-                                  backgroundColor: balance > 0 ? '#f59e0b' : '#10b981',
-                                  transition: 'width 0.3s ease'
-                                }}
-                              />
-                            </div>
+                                <div 
+                                  style={{ 
+                                    width: `${total > 0 ? (paid / total) * 100 : 0}%`,
+                                    height: '100%',
+                                    backgroundColor: balance > 0 ? '#f59e0b' : '#10b981',
+                                    transition: 'width 0.3s ease'
+                                  }}
+                                />
+                              </div>
+                            {/* Due Date Section - Show when there's a balance */}
+                            {balance > 0 && selectedInvoiceForPayment.due_date && (
+                              <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                                {!editingDueDate ? (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Due Date</div>
+                                      <div style={{ fontSize: '0.8125rem', fontWeight: '500', color: '#111827' }}>
+                                        {new Date(selectedInvoiceForPayment.due_date).toLocaleDateString('en-IN', {
+                                          day: '2-digit',
+                                          month: 'short',
+                                          year: 'numeric'
+                                        })}
+                                      </div>
+                                    </div>
+                                    {(userRole === 'admin' || userRole === 'accountant') && (
+                                      <button
+                                        onClick={() => {
+                                          setEditingDueDate(true)
+                                          setNextPaymentDueDate(selectedInvoiceForPayment.due_date || '')
+                                        }}
+                                        style={{
+                                          padding: '0.375rem 0.75rem',
+                                          backgroundColor: '#0284c7',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '0.375rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '500',
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem'
+                                        }}
+                                      >
+                                        <Edit2 style={{ width: '0.75rem', height: '0.75rem' }} />
+                                        Edit
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#64748b' }}>
+                                      Due Date
+                                    </label>
+                                    <input
+                                      type="date"
+                                      value={nextPaymentDueDate}
+                                      onChange={(e) => setNextPaymentDueDate(e.target.value)}
+                                      style={{
+                                        width: '100%',
+                                        padding: '0.5rem',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '0.375rem',
+                                        fontSize: '0.8125rem'
+                                      }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                      <button
+                                        onClick={async () => {
+                                          if (!selectedInvoiceForPayment || !nextPaymentDueDate) return
+                                          try {
+                                            const tenantId = getCurrentTenantId()
+                                            const isSuper = isSuperAdmin()
+                                            
+                                            let updateQuery = supabase
+                                              .from('invoices')
+                                              .update({ due_date: nextPaymentDueDate })
+                                              .eq('id', selectedInvoiceForPayment.id)
+                                            
+                                            if (!isSuper && tenantId) {
+                                              updateQuery = updateQuery.eq('tenant_id', tenantId)
+                                            }
+                                            
+                                            const { error } = await updateQuery
+                                            
+                                            if (error) throw error
+                                            
+                                            let fetchQuery = supabase
+                                              .from('invoices')
+                                              .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                                              .eq('id', selectedInvoiceForPayment.id)
+                                            
+                                            if (!isSuper && tenantId) {
+                                              fetchQuery = fetchQuery.eq('tenant_id', tenantId)
+                                            }
+                                            
+                                            const { data: updatedInvoice } = await fetchQuery.maybeSingle()
+                                            
+                                            if (updatedInvoice) {
+                                              setSelectedInvoiceForPayment(updatedInvoice)
+                                              setEditingDueDate(false)
+                                              alert('Due date updated successfully!')
+                                            } else {
+                                              alert('Due date updated, but could not refresh invoice data. Please refresh the page.')
+                                            }
+                                          } catch (error: any) {
+                                            logger.error('Error updating due date:', error)
+                                            alert(`Failed to update due date: ${error.message}`)
+                                          }
+                                        }}
+                                        style={{
+                                          flex: 1,
+                                          padding: '0.5rem',
+                                          backgroundColor: '#0284c7',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '0.375rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '500',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingDueDate(false)
+                                          setNextPaymentDueDate(selectedInvoiceForPayment.due_date || '')
+                                        }}
+                                        style={{
+                                          padding: '0.5rem',
+                                          backgroundColor: '#f3f4f6',
+                                          color: '#374151',
+                                          border: 'none',
+                                          borderRadius: '0.375rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '500',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {balance > 0 && (
                               <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
-                                <button
+                        <button
                                   onClick={() => setShowPaymentModal(true)}
-                                  style={{
+                          style={{
                                     width: '100%',
                                     padding: '0.625rem',
-                                    backgroundColor: '#059669',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '0.375rem',
+                                backgroundColor: '#059669',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '0.375rem',
                                     fontSize: '0.8125rem',
                                     fontWeight: '600',
-                                    cursor: 'pointer'
-                                  }}
-                                >
+                                cursor: 'pointer'
+                              }}
+                            >
                                   Add Payment
-                                </button>
-                              </div>
+                            </button>
+                          </div>
                             )}
                           </div>
                         )
                       })()}
-                    </div>
+                      </div>
                   </div>
                 ) : (
                   <div>
@@ -3581,16 +4769,16 @@ export default function AccountsPageClient() {
                           <span>₹{selectedEntry?.products.reduce((sum, p) => sum + p.price, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</span>
                         </div>
                         <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
-                          <button
-                            onClick={async () => {
+                            <button
+                              onClick={async () => {
                               if (!selectedEntry) return
-                              
+                                
                               // Validate that there are products with valid prices
                               if (!selectedEntry.products || selectedEntry.products.length === 0) {
                                 alert('Cannot create invoice: No products found for this entry. Please add products first.')
-                                return
-                              }
-                              
+                                  return
+                                }
+                                
                               const validProducts = selectedEntry.products.filter(p => {
                                 const price = parseFloat(p.price) || 0
                                 return price > 0
@@ -3603,101 +4791,102 @@ export default function AccountsPageClient() {
                               
                               // First, create invoice if it doesn't exist
                               if (!selectedInvoiceForPayment) {
-                                setCreatingInvoice(true)
-                                try {
-                                  let discountFromNotes = 0
-                                  let discountReasonFromNotes = ''
-                                  try {
-                                    if (selectedEntry.notes) {
-                                      const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
-                                      discountFromNotes = notes.discount?.discount_amount || 0
-                                      discountReasonFromNotes = notes.discount?.discount_reason || ''
-                                    }
+                        setCreatingInvoice(true)
+                        try {
+                          let discountFromNotes = 0
+                          let discountReasonFromNotes = ''
+                          try {
+                            if (selectedEntry.notes) {
+                              const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                              discountFromNotes = notes.discount?.discount_amount || 0
+                              discountReasonFromNotes = notes.discount?.discount_reason || ''
+                            }
                                   } catch {}
-                                  
-                                  const response = await fetch('/api/invoices', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      vehicleInwardId: selectedEntry.id,
-                                      invoiceDate: new Date().toISOString().split('T')[0],
-                                      dueDate: (() => {
-                                        const date = new Date()
-                                        date.setDate(date.getDate() + 30)
-                                        return date.toISOString().split('T')[0]
-                                      })(),
-                                      discountAmount: discountFromNotes,
-                                      discountReason: discountReasonFromNotes,
+                          
+                          const response = await fetch('/api/invoices', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              vehicleInwardId: selectedEntry.id,
+                              invoiceDate: new Date().toISOString().split('T')[0],
+                              dueDate: (() => {
+                                const date = new Date()
+                                date.setDate(date.getDate() + 30)
+                                return date.toISOString().split('T')[0]
+                              })(),
+                              discountAmount: discountFromNotes,
+                              discountReason: discountReasonFromNotes,
                                       lineItems: validProducts.map(p => {
                                         const price = parseFloat(p.price) || 0
                                         return {
                                           product_name: p.product || 'Unknown Product',
                                           brand: p.brand || '',
                                           department: p.department || '',
-                                          quantity: 1,
+                                quantity: 1,
                                           unit_price: price,
                                           line_total: price
                                         }
                                       }),
-                                      issueImmediately: true
-                                    })
-                                  })
-                                  
-                                  const data = await response.json()
-                                  
-                                  if (!response.ok) {
-                                    throw new Error(data.error || 'Failed to create invoice')
-                                  }
-                                  
-                                  if (data.invoice) {
-                                    // Refresh invoice data
-                                    await findInvoiceForEntry(selectedEntry.id)
+                              issueImmediately: true
+                            })
+                          })
+                          
+                          const data = await response.json()
+                          
+                          if (!response.ok) {
+                            throw new Error(data.error || 'Failed to create invoice')
+                          }
+                          
+                          if (data.invoice) {
+                            // Refresh invoice data
+                            await findInvoiceForEntry(selectedEntry.id)
                                     // Small delay to ensure state is updated before opening modal
-                                    setTimeout(() => {
+                                    const timeoutId = setTimeout(() => {
                                       setShowPaymentModal(true)
                                     }, 100)
-                                  }
-                                } catch (error: any) {
-                                  console.error('Error creating invoice:', error)
+                                    timeoutRefs.current.push(timeoutId)
+                          }
+                        } catch (error: any) {
+                          logger.error('Error creating invoice:', error)
                                   alert(`Failed to create invoice: ${error.message || 'Unknown error'}`)
-                                } finally {
-                                  setCreatingInvoice(false)
+                        } finally {
+                          setCreatingInvoice(false)
                                 }
                               } else {
                                 // Invoice exists, just open payment modal
                                 setShowPaymentModal(true)
-                              }
-                            }}
-                            disabled={creatingInvoice || !selectedEntry}
-                            style={{
+                        }
+                      }}
+                      disabled={creatingInvoice || !selectedEntry}
+                      style={{
                               width: '100%',
                               padding: '0.625rem',
                               backgroundColor: creatingInvoice ? '#9ca3af' : '#059669',
-                              color: 'white',
-                              border: 'none',
+                        color: 'white',
+                        border: 'none',
                               borderRadius: '0.375rem',
                               fontSize: '0.8125rem',
                               fontWeight: '600',
-                              cursor: creatingInvoice ? 'not-allowed' : 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
+                        cursor: creatingInvoice ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
                               justifyContent: 'center',
-                              gap: '0.5rem'
-                            }}
-                          >
+                        gap: '0.5rem'
+                      }}
+                    >
                             <DollarSign style={{ width: '0.875rem', height: '0.875rem' }} />
                             {creatingInvoice ? 'Creating Invoice...' : 'Add Payment'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    </button>
                   </div>
-                )}
               </div>
-            </div>
+                        </div>
+                        </div>
+                )}
+                      </div>
+                          </div>
 
             {/* Action Buttons - Full Width */}
-            <div style={{ 
+                          <div style={{ 
               padding: '0 2.5rem 2rem 2.5rem',
               maxWidth: '1400px',
               margin: '0 auto',
@@ -3708,10 +4897,10 @@ export default function AccountsPageClient() {
               zIndex: 10
             }}>
               <div style={{ 
-                display: 'flex', 
+                            display: 'flex',
                 gap: '1.5rem', 
                 justifyContent: 'space-between', 
-                alignItems: 'center', 
+                            alignItems: 'center',
                 paddingTop: '1.5rem', 
                 paddingBottom: '1rem',
                 borderTop: '2px solid #e5e7eb',
@@ -3749,20 +4938,20 @@ export default function AccountsPageClient() {
                       <>
                         {/* Add Payment Button */}
                         {showAddPayment && (
-                          <button
+                      <button
                             onClick={() => setShowPaymentModal(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
                               padding: '0.75rem 1.5rem',
                               backgroundColor: '#2563eb',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
-                              fontWeight: '600',
-                              cursor: 'pointer',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '0.5rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
                               transition: 'all 0.2s',
                               boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)'
                             }}
@@ -3771,44 +4960,44 @@ export default function AccountsPageClient() {
                           >
                             <DollarSign style={{ width: '1rem', height: '1rem' }} />
                             Add Payment
-                          </button>
+                      </button>
                         )}
                         
                         {/* Mark as Complete Button - For installation_complete status */}
                         {showMarkComplete && selectedEntry.status === 'installation_complete' && (
-                          <button
-                            onClick={handleMarkComplete}
-                            disabled={updatingStatus}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
-                              padding: '0.75rem 1.5rem',
-                              backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
+                  <button
+                    onClick={handleMarkComplete}
+                    disabled={updatingStatus}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.75rem 1.5rem',
+                      backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
                               fontWeight: '600',
-                              cursor: updatingStatus ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#059669'
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#10b981'
-                            }}
-                          >
+                      cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s',
+                      boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!updatingStatus) e.currentTarget.style.backgroundColor = '#059669'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!updatingStatus) e.currentTarget.style.backgroundColor = '#10b981'
+                    }}
+                  >
                             <CheckCircle style={{ width: '1rem', height: '1rem' }} />
-                            {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
-                          </button>
-                        )}
-                        
+                    {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
+                  </button>
+                )}
+
                         {/* Mark as Complete Button - For fully paid invoices */}
                         {showMarkComplete && selectedInvoiceForPayment && isFullyPaid && selectedEntry.status !== 'installation_complete' && (
-                          <button
+                  <button
                             onClick={async () => {
                               if (!selectedInvoiceForPayment || !selectedEntry) return
                               
@@ -3850,24 +5039,24 @@ export default function AccountsPageClient() {
                                 
                                 alert('Entry marked as complete successfully!')
                               } catch (error: any) {
-                                console.error('Error marking as complete:', error)
+                                logger.error('Error marking as complete:', error)
                                 alert(`Failed to mark as complete: ${error.message}`)
                               } finally {
                                 setUpdatingStatus(false)
                               }
                             }}
                             disabled={updatingStatus}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
                               padding: '0.75rem 1.5rem',
                               backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
-                              fontWeight: '600',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                      fontWeight: '600',
                               cursor: updatingStatus ? 'not-allowed' : 'pointer',
                               transition: 'all 0.2s',
                               boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
@@ -3881,7 +5070,7 @@ export default function AccountsPageClient() {
                           >
                             <CheckCircle style={{ width: '1rem', height: '1rem' }} />
                             {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
-                          </button>
+                  </button>
                         )}
                       </>
                     )
@@ -3931,32 +5120,48 @@ export default function AccountsPageClient() {
             setShowPaymentModal(false)
           }}
           onSuccess={async () => {
-            // Refresh payment history and invoice data
-            if (selectedInvoiceForPayment) {
+            // Refresh payment history and invoice data for the current entry only
+            if (selectedInvoiceForPayment && selectedEntry) {
               const invoiceId = selectedInvoiceForPayment.id
               await fetchPaymentHistory(invoiceId)
+              
               // Refresh invoice data with all fields including discount
-              const { data: updatedInvoice } = await supabase
+              const tenantId = getCurrentTenantId()
+              const isSuper = isSuperAdmin()
+              
+              let invoiceQuery = supabase
                 .from('invoices')
                 .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
                 .eq('id', invoiceId)
-                .single()
+              
+              if (!isSuper && tenantId) {
+                invoiceQuery = invoiceQuery.eq('tenant_id', tenantId)
+              }
+              
+              const { data: updatedInvoice } = await invoiceQuery.maybeSingle()
               
               if (updatedInvoice) {
                 setSelectedInvoiceForPayment(updatedInvoice)
+                
+                // Update the invoice in the invoices list if it exists there (to avoid duplicates)
+                setInvoices(prevInvoices => {
+                  const invoiceIndex = prevInvoices.findIndex(inv => inv.id === invoiceId)
+                  if (invoiceIndex >= 0) {
+                    // Update existing invoice in list
+                    const updated = [...prevInvoices]
+                    updated[invoiceIndex] = {
+                      ...updated[invoiceIndex],
+                      ...updatedInvoice
+                    }
+                    return updated
+                  }
+                  // If not in list, don't add it - just return existing list
+                  return prevInvoices
+                })
               }
               
-              // Refresh summary and invoice list
+              // Refresh summary only (don't refresh entire invoice list to avoid duplicates)
               fetchSummary()
-              const statusMap: Record<string, string> = {
-                'entries': 'all',
-                'partial': 'partial',
-                'overdue': 'overdue',
-                'settled': 'paid'
-              }
-              if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
-                fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
-              }
             }
             setShowPaymentModal(false)
           }}
@@ -3974,32 +5179,48 @@ export default function AccountsPageClient() {
             setEditingPayment(null)
           }}
           onSuccess={async () => {
-            // Refresh payment history and invoice data
-            if (selectedInvoiceForPayment) {
+            // Refresh payment history and invoice data for the current entry only
+            if (selectedInvoiceForPayment && selectedEntry) {
               const invoiceId = selectedInvoiceForPayment.id
               await fetchPaymentHistory(invoiceId)
+              
               // Refresh invoice data with all fields including discount
-              const { data: updatedInvoice } = await supabase
+              const tenantId = getCurrentTenantId()
+              const isSuper = isSuperAdmin()
+              
+              let invoiceQuery = supabase
                 .from('invoices')
                 .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
                 .eq('id', invoiceId)
-                .single()
+              
+              if (!isSuper && tenantId) {
+                invoiceQuery = invoiceQuery.eq('tenant_id', tenantId)
+              }
+              
+              const { data: updatedInvoice } = await invoiceQuery.maybeSingle()
               
               if (updatedInvoice) {
                 setSelectedInvoiceForPayment(updatedInvoice)
+                
+                // Update the invoice in the invoices list if it exists there (to avoid duplicates)
+                setInvoices(prevInvoices => {
+                  const invoiceIndex = prevInvoices.findIndex(inv => inv.id === invoiceId)
+                  if (invoiceIndex >= 0) {
+                    // Update existing invoice in list
+                    const updated = [...prevInvoices]
+                    updated[invoiceIndex] = {
+                      ...updated[invoiceIndex],
+                      ...updatedInvoice
+                    }
+                    return updated
+                  }
+                  // If not in list, don't add it - just return existing list
+                  return prevInvoices
+                })
               }
               
-              // Refresh summary and invoice list
+              // Refresh summary only (don't refresh entire invoice list to avoid duplicates)
               fetchSummary()
-              const statusMap: Record<string, string> = {
-                'entries': 'all',
-                'partial': 'partial',
-                'overdue': 'overdue',
-                'settled': 'paid'
-              }
-              if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
-                fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
-              }
             }
             setEditingPayment(null)
           }}
