@@ -170,6 +170,38 @@ export async function GET(request: NextRequest) {
           case 'vehicle_delivered':
             success = await processVehicleDelivered(payload, tenant_id, notificationWorkflow)
             break
+          case 'invoice_issued':
+            console.log(`[NotificationWorker] 📋 Processing invoice_issued notification:`, {
+              notificationId: notification.id,
+              tenantId: tenant_id,
+              vehicleId: payload.vehicleId
+            })
+            success = await processInvoiceIssued(payload, tenant_id, notificationWorkflow)
+            break
+          case 'payment_received':
+            console.log(`[NotificationWorker] 💰 Processing payment_received notification:`, {
+              notificationId: notification.id,
+              tenantId: tenant_id,
+              vehicleId: payload.vehicleId
+            })
+            success = await processPaymentReceived(payload, tenant_id, notificationWorkflow)
+            break
+          case 'invoice_overdue':
+            console.log(`[NotificationWorker] ⚠️ Processing invoice_overdue notification:`, {
+              notificationId: notification.id,
+              tenantId: tenant_id,
+              vehicleId: payload.vehicleId
+            })
+            success = await processInvoiceOverdue(payload, tenant_id, notificationWorkflow)
+            break
+          case 'invoice_reminder':
+            console.log(`[NotificationWorker] 📋 Processing invoice_reminder notification:`, {
+              notificationId: notification.id,
+              tenantId: tenant_id,
+              vehicleId: payload.vehicleId
+            })
+            success = await processInvoiceReminder(payload, tenant_id, notificationWorkflow)
+            break
           default:
             console.warn(`[NotificationWorker] Unknown event type: ${event_type}`)
             success = false
@@ -354,6 +386,78 @@ async function processVehicleDelivered(
     return true
   } catch (error) {
     console.error('[NotificationWorker] Error processing vehicle_delivered:', error)
+    return false
+  }
+}
+
+async function processInvoiceIssued(
+  payload: any, 
+  tenantId: string, 
+  notificationWorkflow: NotificationWorkflowService
+): Promise<boolean> {
+  try {
+    await notificationWorkflow.notifyInvoiceIssued(
+      payload.vehicleId,
+      payload.vehicleData,
+      payload.invoiceData || {}
+    )
+    return true
+  } catch (error) {
+    console.error('[NotificationWorker] Error processing invoice_issued:', error)
+    return false
+  }
+}
+
+async function processPaymentReceived(
+  payload: any, 
+  tenantId: string, 
+  notificationWorkflow: NotificationWorkflowService
+): Promise<boolean> {
+  try {
+    await notificationWorkflow.notifyPaymentReceived(
+      payload.vehicleId,
+      payload.vehicleData,
+      payload.paymentData || {}
+    )
+    return true
+  } catch (error) {
+    console.error('[NotificationWorker] Error processing payment_received:', error)
+    return false
+  }
+}
+
+async function processInvoiceOverdue(
+  payload: any, 
+  tenantId: string, 
+  notificationWorkflow: NotificationWorkflowService
+): Promise<boolean> {
+  try {
+    await notificationWorkflow.notifyInvoiceOverdue(
+      payload.vehicleId,
+      payload.vehicleData,
+      payload.invoiceData || {}
+    )
+    return true
+  } catch (error) {
+    console.error('[NotificationWorker] Error processing invoice_overdue:', error)
+    return false
+  }
+}
+
+async function processInvoiceReminder(
+  payload: any, 
+  tenantId: string, 
+  notificationWorkflow: NotificationWorkflowService
+): Promise<boolean> {
+  try {
+    await notificationWorkflow.sendInvoiceReminder(
+      payload.vehicleId,
+      payload.vehicleData,
+      payload.invoiceData || {}
+    )
+    return true
+  } catch (error) {
+    console.error('[NotificationWorker] Error processing invoice_reminder:', error)
     return false
   }
 }

@@ -52,6 +52,10 @@ export interface WorkflowEvent {
     | 'invoice_number_added'
     | 'accountant_completed'
     | 'vehicle_delivered'
+    | 'invoice_issued'
+    | 'payment_received'
+    | 'invoice_overdue'
+    | 'invoice_reminder'
   vehicleId: string
   vehicleNumber?: string
   customerName?: string
@@ -772,6 +776,30 @@ class WhatsAppService {
 
       case 'vehicle_delivered':
         return `🎉 *Vehicle Delivered*\n\n${vehicleInfo}\n${customerInfo}\n\nVehicle has been marked as delivered.\n\nThank you for your work!`
+
+      case 'invoice_issued':
+        const invoiceNumber = event.metadata?.invoiceNumber || 'N/A'
+        const amount = event.metadata?.amount || 0
+        const dueDate = event.metadata?.dueDate || 'N/A'
+        return `🧾 *Invoice Issued*\n\n${vehicleInfo}\n${customerInfo}\n\nInvoice #: ${invoiceNumber}\nAmount: ₹${amount.toLocaleString('en-IN')}\nDue Date: ${dueDate}\n\nPlease make payment before due date.`
+
+      case 'payment_received':
+        const paymentAmount = event.metadata?.amount || 0
+        const paymentMode = event.metadata?.paymentMode || 'N/A'
+        const invNumber = event.metadata?.invoiceNumber || 'N/A'
+        return `✅ *Payment Received*\n\n${vehicleInfo}\n${customerInfo}\n\nInvoice #: ${invNumber}\nPayment: ₹${paymentAmount.toLocaleString('en-IN')}\nMode: ${paymentMode}\n\nThank you for your payment!`
+
+      case 'invoice_overdue':
+        const overdueInvoiceNumber = event.metadata?.invoiceNumber || 'N/A'
+        const balanceAmount = event.metadata?.balanceAmount || 0
+        const overdueDueDate = event.metadata?.dueDate || 'N/A'
+        return `⚠️ *Payment Overdue*\n\n${vehicleInfo}\n${customerInfo}\n\nInvoice #: ${overdueInvoiceNumber}\nAmount Due: ₹${balanceAmount.toLocaleString('en-IN')}\nDue Date: ${overdueDueDate}\n\nPlease make payment at the earliest.`
+
+      case 'invoice_reminder':
+        const reminderInvoiceNumber = event.metadata?.invoiceNumber || 'N/A'
+        const reminderAmount = event.metadata?.amount || 0
+        const reminderDueDate = event.metadata?.dueDate || 'N/A'
+        return `📋 *Payment Reminder*\n\n${vehicleInfo}\n${customerInfo}\n\nInvoice #: ${reminderInvoiceNumber}\nAmount: ₹${reminderAmount.toLocaleString('en-IN')}\nDue Date: ${reminderDueDate}\n\nThis is a friendly reminder about your pending payment.`
 
       default:
         return `📢 *Notification*\n\n${vehicleInfo}\n${customerInfo}\n\nPlease check the dashboard for updates.`

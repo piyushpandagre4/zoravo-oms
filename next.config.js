@@ -21,6 +21,15 @@ const nextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    // Suppress "Critical dependency" warnings for dynamic imports in tenant-context.ts
+    // These are harmless - the dynamic imports work correctly at runtime
+    config.module = config.module || {}
+    config.module.exprContextCritical = false
+    config.module.unknownContextCritical = false
+    
+    return config
+  },
 }
 
 module.exports = nextConfig

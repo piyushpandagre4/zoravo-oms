@@ -1,7 +1,9 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
-import { DollarSign, FileText, TrendingUp, Eye, Download, Search, Calendar, User, Car, Package, MapPin, Building, AlertCircle, CheckCircle, Clock, Edit2, Save, X, Upload, Link as LinkIcon, FileImage, BarChart3, Filter, Percent, Users } from 'lucide-react'
+import { DollarSign, FileText, TrendingUp, Eye, Download, Search, Calendar, User, Car, Package, MapPin, Building, AlertCircle, CheckCircle, Clock, Edit2, Save, X, Upload, Link as LinkIcon, FileImage, BarChart3, Filter, Percent, Users, Edit, Ban, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, MessageSquare } from 'lucide-react'
+import InvoiceDetailModal from '@/components/InvoiceDetailModal'
+import PaymentRecordingModal from '@/components/PaymentRecordingModal'
 import { createClient } from '@/lib/supabase/client'
 import VehicleCommentsSection from '@/components/VehicleCommentsSection'
 import { getCurrentTenantId, isSuperAdmin } from '@/lib/tenant-context'
@@ -33,6 +35,7 @@ interface AccountEntry {
   discountReason?: string
   finalAmount?: number
   invoiceNumber?: string // Invoice number from external platform
+  entryStatus?: string // 'Na' | 'Draft' | 'Partial' | 'Paid'
 }
 
 interface ProductDetail {
@@ -51,11 +54,19 @@ interface InvoiceReference {
 
 export default function AccountsPageClient() {
   const [searchTerm, setSearchTerm] = useState('')
-  const [activeTab, setActiveTab] = useState('entries')
+  const [activeTab, setActiveTab] = useState('entries') // Default to Account Entries tab
   const [entries, setEntries] = useState<AccountEntry[]>([])
   const [completedEntries, setCompletedEntries] = useState<AccountEntry[]>([])
-  const [loading, setLoading] = useState(true)
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [summary, setSummary] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
   const [completedLoading, setCompletedLoading] = useState(false)
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([])
+  const [loadingPayments, setLoadingPayments] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<any>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null)
   const [timeFilter, setTimeFilter] = useState<string>('all') // 'all', 'today', 'week', 'month', 'year', 'custom'
   const [customStartDate, setCustomStartDate] = useState<string>('')
   const [customEndDate, setCustomEndDate] = useState<string>('')
@@ -81,14 +92,42 @@ export default function AccountsPageClient() {
   const [editingInvoiceNumber, setEditingInvoiceNumber] = useState(false)
   const [invoiceNumberInput, setInvoiceNumberInput] = useState<string>('')
   const [updatingInvoiceNumber, setUpdatingInvoiceNumber] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [entriesPerPage] = useState(10)
+  const [nextPaymentDueDate, setNextPaymentDueDate] = useState<string>('')
+  const [editingDueDate, setEditingDueDate] = useState(false)
+  const [creatingInvoice, setCreatingInvoice] = useState(false)
+  const [commentsExpanded, setCommentsExpanded] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<any>(null)
+  const [deletingPayment, setDeletingPayment] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
     loadRelatedData()
-    fetchAccountEntries()
     loadUserRole()
-    if (activeTab === 'completed') {
-      fetchCompletedEntries()
+    fetchSummary()
+    
+    // Set loading state based on which tab is active
+    if (activeTab === 'entries' || activeTab === 'completed') {
+      // Legacy tabs - keep for backward compatibility
+      setLoading(true)
+      if (activeTab === 'entries') {
+        fetchAccountEntries()
+      } else {
+        fetchCompletedEntries()
+      }
+    } else if (activeTab === 'settled') {
+      // Settled/Completed tab: show both settled invoices AND completed entries
+      setLoading(false) // Clear main loading since we use invoicesLoading
+      setInvoicesLoading(true)
+      setCompletedLoading(true)
+      fetchInvoicesByStatus('settled')
+      fetchCompletedEntries() // Also fetch completed entries
+    } else {
+      // New invoice status tabs
+      setLoading(false) // Clear main loading since we use invoicesLoading
+      setInvoicesLoading(true)
+      fetchInvoicesByStatus(activeTab)
     }
   }, [activeTab, timeFilter, customStartDate, customEndDate])
 
@@ -105,8 +144,322 @@ export default function AccountsPageClient() {
       // Load invoice number for editing
       setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
       setEditingInvoiceNumber(false)
+      
+      // Find invoice for this entry and fetch payment history
+      findInvoiceForEntry(selectedEntry.id)
     }
   }, [selectedEntry])
+
+  // Reset to page 1 when search term changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
+  const findInvoiceForEntry = async (vehicleInwardId: string) => {
+    try {
+      const { data: invoice } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date')
+        .eq('vehicle_inward_id', vehicleInwardId)
+        .single()
+      
+      if (invoice) {
+        setSelectedInvoiceForPayment(invoice)
+        fetchPaymentHistory(invoice.id)
+      } else {
+        setSelectedInvoiceForPayment(null)
+        setPaymentHistory([])
+      }
+    } catch (error) {
+      console.error('Error finding invoice for entry:', error)
+      setSelectedInvoiceForPayment(null)
+      setPaymentHistory([])
+    }
+  }
+
+  const fetchSummary = async () => {
+    try {
+      const response = await fetch('/api/invoices/summary')
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('Error fetching summary:', data.error || data.message)
+        // Set default empty summary if there's an error
+        setSummary({
+          totalInvoiced: 0,
+          totalReceived: 0,
+          totalOutstanding: 0,
+          totalOverdue: 0,
+          byStatus: []
+        })
+        return
+      }
+      
+      if (data.summary) {
+        setSummary(data.summary)
+      } else {
+        // Set default empty summary
+        setSummary({
+          totalInvoiced: 0,
+          totalReceived: 0,
+          totalOutstanding: 0,
+          totalOverdue: 0,
+          byStatus: []
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching summary:', error)
+      // Set default empty summary on error
+      setSummary({
+        totalInvoiced: 0,
+        totalReceived: 0,
+        totalOutstanding: 0,
+        totalOverdue: 0,
+        byStatus: []
+      })
+    }
+  }
+
+  const fetchInvoicesByStatus = async (status: string) => {
+    try {
+      setInvoicesLoading(true)
+      
+      // Special handling for 'settled' status - must be fully paid AND delivered
+      if (status === 'settled') {
+        const tenantId = getCurrentTenantId()
+        const isSuper = isSuperAdmin()
+        
+        // Step 1: Fetch fully paid invoices (status='paid' AND balance_amount = 0)
+        let invoiceQuery = supabase
+          .from('invoices')
+          .select('*')
+          .eq('status', 'paid')
+          .eq('balance_amount', 0)
+          .order('created_at', { ascending: false })
+        
+        // Add tenant filter
+        if (!isSuper && tenantId) {
+          invoiceQuery = invoiceQuery.eq('tenant_id', tenantId)
+        }
+        
+        // Apply time filter for invoices
+        let startDate: Date | null = null
+        const now = new Date()
+        
+        switch (timeFilter) {
+          case 'today': {
+            const today = new Date(now)
+            today.setHours(0, 0, 0, 0)
+            startDate = today
+            break
+          }
+          case 'week': {
+            const weekAgo = new Date(now)
+            weekAgo.setDate(weekAgo.getDate() - 7)
+            startDate = weekAgo
+            break
+          }
+          case 'month': {
+            const monthAgo = new Date(now)
+            monthAgo.setMonth(monthAgo.getMonth() - 1)
+            startDate = monthAgo
+            break
+          }
+          case 'year': {
+            const yearAgo = new Date(now)
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1)
+            startDate = yearAgo
+            break
+          }
+          case 'custom':
+            if (customStartDate) {
+              startDate = new Date(customStartDate)
+            }
+            break
+        }
+        
+        if (startDate) {
+          invoiceQuery = invoiceQuery.gte('invoice_date', startDate.toISOString().split('T')[0])
+        }
+        
+        if (timeFilter === 'custom' && customEndDate) {
+          invoiceQuery = invoiceQuery.lte('invoice_date', customEndDate)
+        }
+        
+        const { data: invoicesData, error: invoicesError } = await invoiceQuery
+        
+        if (invoicesError) {
+          console.error('Error fetching settled invoices:', invoicesError)
+          setInvoices([])
+          return
+        }
+        
+        if (!invoicesData || invoicesData.length === 0) {
+          setInvoices([])
+          return
+        }
+        
+        // Filter to ensure invoices are fully paid (balance_amount = 0 OR paid_amount >= total_amount)
+        const fullyPaidInvoices = invoicesData.filter((invoice: any) => {
+          const balanceAmount = parseFloat(invoice.balance_amount || 0)
+          const paidAmount = parseFloat(invoice.paid_amount || 0)
+          const totalAmount = parseFloat(invoice.total_amount || 0)
+          return balanceAmount === 0 || paidAmount >= totalAmount
+        })
+        
+        if (fullyPaidInvoices.length === 0) {
+          setInvoices([])
+          return
+        }
+        
+        // Step 2: Fetch delivered vehicle_inward entries
+        const deliveredStatuses = ['delivered', 'delivered_final', 'delivered (final)', 'complete_and_delivered']
+        const invoiceVehicleInwardIds = fullyPaidInvoices
+          .map((inv: any) => inv.vehicle_inward_id)
+          .filter((id: string | null) => id !== null)
+        
+        if (invoiceVehicleInwardIds.length === 0) {
+          setInvoices([])
+          return
+        }
+        
+        let vehicleInwardQuery = supabase
+          .from('vehicle_inward')
+          .select('id, status, customer_name, registration_number, model, make')
+          .in('id', invoiceVehicleInwardIds)
+          .in('status', deliveredStatuses)
+        
+        // Add tenant filter
+        if (!isSuper && tenantId) {
+          vehicleInwardQuery = vehicleInwardQuery.eq('tenant_id', tenantId)
+        }
+        
+        const { data: deliveredVehicles, error: vehiclesError } = await vehicleInwardQuery
+        
+        if (vehiclesError) {
+          console.error('Error fetching delivered vehicles:', vehiclesError)
+          setInvoices([])
+          return
+        }
+        
+        // Step 3: Match invoices to delivered vehicle_inward entries
+        const deliveredVehicleIds = new Set((deliveredVehicles || []).map((v: any) => v.id))
+        const settledInvoices = fullyPaidInvoices.filter((invoice: any) => 
+          invoice.vehicle_inward_id && deliveredVehicleIds.has(invoice.vehicle_inward_id)
+        )
+        
+        // Step 4: Apply search filter if provided
+        let filteredInvoices = settledInvoices
+        if (searchTerm) {
+          const searchLower = searchTerm.toLowerCase()
+          filteredInvoices = settledInvoices.filter((invoice: any) => {
+            const vehicle = deliveredVehicles?.find((v: any) => v.id === invoice.vehicle_inward_id)
+            return (
+              invoice.invoice_number?.toLowerCase().includes(searchLower) ||
+              vehicle?.customer_name?.toLowerCase().includes(searchLower) ||
+              vehicle?.registration_number?.toLowerCase().includes(searchLower)
+            )
+          })
+        }
+        
+        // Step 5: Enrich invoices with vehicle_inward data
+        const enrichedInvoices = filteredInvoices.map((invoice: any) => {
+          const vehicle = deliveredVehicles?.find((v: any) => v.id === invoice.vehicle_inward_id)
+          return {
+            ...invoice,
+            vehicle_inward: {
+              id: vehicle?.id,
+              status: vehicle?.status,
+              vehicles: {
+                registration_number: vehicle?.registration_number,
+                make: vehicle?.make,
+                model: vehicle?.model,
+                customers: {
+                  name: vehicle?.customer_name
+                }
+              }
+            }
+          }
+        })
+        
+        setInvoices(enrichedInvoices)
+        return
+      }
+      
+      // Existing logic for other statuses
+      const params = new URLSearchParams()
+      // Only add status filter if not 'all'
+      if (status && status !== 'all') {
+        params.append('status', status)
+      }
+      if (timeFilter === 'custom' && customStartDate) {
+        params.append('startDate', customStartDate)
+      }
+      if (timeFilter === 'custom' && customEndDate) {
+        params.append('endDate', customEndDate)
+      }
+      if (searchTerm) {
+        params.append('search', searchTerm)
+      }
+
+      const queryString = params.toString()
+      const url = `/api/invoices${queryString ? `?${queryString}` : ''}`
+      const response = await fetch(url)
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('Error fetching invoices:', data.error || data.message)
+        // If it's a migration issue, show helpful message
+        if (data.message?.includes('migrations')) {
+          console.warn('Database migrations may not have been run yet.')
+        }
+        setInvoices([])
+        return
+      }
+      
+      if (data.invoices) {
+        // Check for overdue invoices and update status if needed
+        const today = new Date().toISOString().split('T')[0]
+        const updatedInvoices = data.invoices.map((invoice: any) => {
+          if ((invoice.status === 'issued' || invoice.status === 'partial') && 
+              invoice.due_date && 
+              invoice.due_date < today && 
+              invoice.balance_amount > 0) {
+            // Mark as overdue if not already
+            return { ...invoice, status: 'overdue' }
+          }
+          return invoice
+        })
+        setInvoices(updatedInvoices)
+      } else {
+        setInvoices([])
+      }
+    } catch (error) {
+      console.error('Error fetching invoices:', error)
+      setInvoices([])
+    } finally {
+      setInvoicesLoading(false)
+    }
+  }
+
+  const fetchPaymentHistory = async (invoiceId: string) => {
+    try {
+      setLoadingPayments(true)
+      const response = await fetch(`/api/invoices/${invoiceId}/payments`)
+      const data = await response.json()
+      
+      if (response.ok && data.payments) {
+        setPaymentHistory(data.payments)
+      } else {
+        setPaymentHistory([])
+      }
+    } catch (error) {
+      console.error('Error fetching payment history:', error)
+      setPaymentHistory([])
+    } finally {
+      setLoadingPayments(false)
+    }
+  }
 
   const loadUserRole = async () => {
     try {
@@ -123,6 +476,68 @@ export default function AccountsPageClient() {
       }
     } catch (error) {
       console.error('Error loading user role:', error)
+    }
+  }
+
+  const calculateEntryStatus = (
+    invoiceNumber: string | undefined,
+    invoice: { paid_amount: number; balance_amount: number; total_amount: number } | null
+  ): string => {
+    if (!invoiceNumber || invoiceNumber.trim() === '') {
+      return 'Na'
+    }
+    
+    if (!invoice || !invoice.paid_amount || invoice.paid_amount === 0) {
+      return 'Draft'
+    }
+    
+    if (invoice.balance_amount > 0) {
+      return 'Partial'
+    }
+    
+    return 'Paid'
+  }
+
+  const getStatusBadgeStyle = (status: string) => {
+    const baseStyle = {
+      padding: '0.25rem 0.75rem',
+      borderRadius: '0.375rem',
+      fontSize: '0.75rem',
+      fontWeight: '600',
+      display: 'inline-block'
+    }
+
+    switch (status) {
+      case 'Na':
+        return {
+          ...baseStyle,
+          backgroundColor: '#6b7280',
+          color: 'white'
+        }
+      case 'Draft':
+        return {
+          ...baseStyle,
+          backgroundColor: '#f59e0b',
+          color: 'white'
+        }
+      case 'Partial':
+        return {
+          ...baseStyle,
+          backgroundColor: '#3b82f6',
+          color: 'white'
+        }
+      case 'Paid':
+        return {
+          ...baseStyle,
+          backgroundColor: '#10b981',
+          color: 'white'
+        }
+      default:
+        return {
+          ...baseStyle,
+          backgroundColor: '#6b7280',
+          color: 'white'
+        }
     }
   }
 
@@ -279,6 +694,25 @@ export default function AccountsPageClient() {
       if (error) throw error
 
       if (data && data.length > 0) {
+        // Batch fetch invoices for all entries
+        const entryIds = data.map((v: any) => v.id)
+        const { data: invoicesData } = await supabase
+          .from('invoices')
+          .select('vehicle_inward_id, paid_amount, balance_amount, total_amount')
+          .in('vehicle_inward_id', entryIds)
+
+        // Create a map of vehicle_inward_id → invoice for quick lookup
+        const invoicesMap = new Map<string, { paid_amount: number; balance_amount: number; total_amount: number }>()
+        if (invoicesData) {
+          invoicesData.forEach((inv: any) => {
+            invoicesMap.set(inv.vehicle_inward_id, {
+              paid_amount: parseFloat(inv.paid_amount || 0),
+              balance_amount: parseFloat(inv.balance_amount || 0),
+              total_amount: parseFloat(inv.total_amount || 0)
+            })
+          })
+        }
+
         const mappedEntries: AccountEntry[] = data.map((v: any) => {
           // Parse products from accessories_requested JSON
           let products: ProductDetail[] = []
@@ -343,6 +777,12 @@ export default function AccountsPageClient() {
           
           const finalAmount = totalAmount - discountAmount
 
+          // Get invoice record for this entry
+          const invoice = invoicesMap.get(v.id) || null
+
+          // Calculate entry status
+          const entryStatus = calculateEntryStatus(invoiceNumber, invoice)
+
           return {
             id: v.id,
             shortId: v.short_id || v.id.substring(0, 8),
@@ -369,7 +809,8 @@ export default function AccountsPageClient() {
             discountOfferedBy: discountOfferedBy,
             discountReason: discountReason,
             finalAmount: finalAmount,
-            invoiceNumber: invoiceNumber
+            invoiceNumber: invoiceNumber,
+            entryStatus: entryStatus
           }
         })
 
@@ -409,6 +850,25 @@ export default function AccountsPageClient() {
       if (error) throw error
 
       if (data && data.length > 0) {
+        // Batch fetch invoices for all entries
+        const entryIds = data.map((v: any) => v.id)
+        const { data: invoicesData } = await supabase
+          .from('invoices')
+          .select('vehicle_inward_id, paid_amount, balance_amount, total_amount')
+          .in('vehicle_inward_id', entryIds)
+
+        // Create a map of vehicle_inward_id → invoice for quick lookup
+        const invoicesMap = new Map<string, { paid_amount: number; balance_amount: number; total_amount: number }>()
+        if (invoicesData) {
+          invoicesData.forEach((inv: any) => {
+            invoicesMap.set(inv.vehicle_inward_id, {
+              paid_amount: parseFloat(inv.paid_amount || 0),
+              balance_amount: parseFloat(inv.balance_amount || 0),
+              total_amount: parseFloat(inv.total_amount || 0)
+            })
+          })
+        }
+
         const mappedEntries: AccountEntry[] = data.map((v: any) => {
           // Parse products from accessories_requested JSON
           let products: ProductDetail[] = []
@@ -447,6 +907,12 @@ export default function AccountsPageClient() {
             }
           }
 
+          // Get invoice record for this entry
+          const invoice = invoicesMap.get(v.id) || null
+
+          // Calculate entry status
+          const entryStatus = calculateEntryStatus(invoiceNumber, invoice)
+
           return {
             id: v.id,
             shortId: v.short_id || v.id.substring(0, 8),
@@ -467,7 +933,8 @@ export default function AccountsPageClient() {
             totalAmount: totalAmount,
             status: v.status,
             created_at: v.created_at,
-            invoiceNumber: invoiceNumber
+            invoiceNumber: invoiceNumber,
+            entryStatus: entryStatus
           }
         })
 
@@ -497,6 +964,12 @@ export default function AccountsPageClient() {
   const totalEntries = filteredEntries.length
   const totalRevenue = filteredEntries.reduce((sum, entry) => sum + entry.totalAmount, 0)
   const avgOrderValue = totalEntries > 0 ? totalRevenue / totalEntries : 0
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage)
+  const startIndex = (currentPage - 1) * entriesPerPage
+  const endIndex = startIndex + entriesPerPage
+  const paginatedEntries = filteredEntries.slice(startIndex, endIndex)
 
   // Calculate analytics for completed entries
   const filteredCompleted = completedEntries.filter(entry => {
@@ -946,7 +1419,7 @@ export default function AccountsPageClient() {
     }
   }
 
-  if (loading) {
+  if (loading || invoicesLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
         <div style={{ textAlign: 'center' }}>
@@ -1012,8 +1485,8 @@ export default function AccountsPageClient() {
           </button>
         </div>
 
-        {/* Summary Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
+        {/* Summary Cards - Financial Metrics */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
           <div style={{
             backgroundColor: '#eff6ff',
             borderRadius: '0.75rem',
@@ -1021,12 +1494,14 @@ export default function AccountsPageClient() {
             border: '1px solid #bfdbfe'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Total Entries</span>
+              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Total Invoiced</span>
               <FileText style={{ width: '1.25rem', height: '1.25rem', color: '#3b82f6' }} />
             </div>
-            <div style={{ fontSize: '1.875rem', fontWeight: '700', color: '#1e293b' }}>{displayTotalEntries}</div>
+            <div style={{ fontSize: '1.875rem', fontWeight: '700', color: '#1e293b' }}>
+              {summary ? `₹${parseFloat(summary.totalInvoiced || 0).toLocaleString('en-IN')}` : 'Loading...'}
+            </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
-              {activeTab === 'completed' ? 'Completed entries' : 'Ready for invoicing'}
+              All issued invoices
             </div>
           </div>
 
@@ -1037,14 +1512,14 @@ export default function AccountsPageClient() {
             border: '1px solid #bbf7d0'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Total Revenue</span>
+              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Total Received</span>
               <DollarSign style={{ width: '1.25rem', height: '1.25rem', color: '#059669' }} />
             </div>
             <div style={{ fontSize: '1.875rem', fontWeight: '700', color: '#1e293b' }}>
-              {formatCurrency(displayTotalRevenue)}
+              {summary ? `₹${parseFloat(summary.totalReceived || 0).toLocaleString('en-IN')}` : 'Loading...'}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
-              {activeTab === 'completed' ? 'Final revenue (after discounts)' : 'From all entries'}
+              Payments received
             </div>
           </div>
 
@@ -1055,14 +1530,32 @@ export default function AccountsPageClient() {
             border: '1px solid #fde68a'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Average Order</span>
+              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Outstanding</span>
               <TrendingUp style={{ width: '1.25rem', height: '1.25rem', color: '#d97706' }} />
             </div>
             <div style={{ fontSize: '1.875rem', fontWeight: '700', color: '#1e293b' }}>
-              {formatCurrency(displayAvgOrderValue)}
+              {summary ? `₹${parseFloat(summary.totalOutstanding || 0).toLocaleString('en-IN')}` : 'Loading...'}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
-              {activeTab === 'completed' ? 'Avg final order value' : 'Per installation'}
+              Unpaid balance
+            </div>
+          </div>
+
+          <div style={{
+            backgroundColor: '#fee2e2',
+            borderRadius: '0.75rem',
+            padding: '1.25rem',
+            border: '1px solid #fecaca'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: '500' }}>Overdue</span>
+              <AlertCircle style={{ width: '1.25rem', height: '1.25rem', color: '#dc2626' }} />
+            </div>
+            <div style={{ fontSize: '1.875rem', fontWeight: '700', color: '#dc2626' }}>
+              {summary ? `₹${parseFloat(summary.totalOverdue || 0).toLocaleString('en-IN')}` : 'Loading...'}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
+              Past due date
             </div>
           </div>
         </div>
@@ -1071,54 +1564,388 @@ export default function AccountsPageClient() {
       {/* Tabs */}
       <div style={{ backgroundColor: 'white', borderBottom: '1px solid #e2e8f0', padding: '0 2rem' }}>
         <div style={{ display: 'flex', gap: '2rem' }}>
-            <button
+          <button
             onClick={() => setActiveTab('entries')}
-              style={{
+            style={{
               padding: '1rem 0',
-                border: 'none',
-                backgroundColor: 'transparent',
+              border: 'none',
+              backgroundColor: 'transparent',
               color: activeTab === 'entries' ? '#2563eb' : '#64748b',
               fontWeight: activeTab === 'entries' ? '600' : '400',
               borderBottom: activeTab === 'entries' ? '3px solid #2563eb' : '3px solid transparent',
-                cursor: 'pointer',
-                fontSize: '0.875rem',
-                display: 'flex',
-                alignItems: 'center',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
               gap: '0.5rem',
               transition: 'all 0.2s'
-              }}
-            >
+            }}
+          >
             <FileText style={{ width: '1rem', height: '1rem' }} />
             Account Entries
-            </button>
-            <button
-            onClick={() => {
-              setActiveTab('completed')
-              fetchCompletedEntries()
-            }}
-              style={{
+          </button>
+          <button
+            onClick={() => setActiveTab('partial')}
+            style={{
               padding: '1rem 0',
-                border: 'none',
-                backgroundColor: 'transparent',
-              color: activeTab === 'completed' ? '#2563eb' : '#64748b',
-              fontWeight: activeTab === 'completed' ? '600' : '400',
-              borderBottom: activeTab === 'completed' ? '3px solid #2563eb' : '3px solid transparent',
-                cursor: 'pointer',
-                fontSize: '0.875rem',
-                display: 'flex',
-                alignItems: 'center',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'partial' ? '#2563eb' : '#64748b',
+              fontWeight: activeTab === 'partial' ? '600' : '400',
+              borderBottom: activeTab === 'partial' ? '3px solid #2563eb' : '3px solid transparent',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
               gap: '0.5rem',
               transition: 'all 0.2s'
-              }}
-            >
-            <CheckCircle style={{ width: '1rem', height: '1rem' }} />
-            Completed
-            </button>
+            }}
+          >
+            <Percent style={{ width: '1rem', height: '1rem' }} />
+            Partial Payments
+          </button>
+          <button
+            onClick={() => setActiveTab('overdue')}
+            style={{
+              padding: '1rem 0',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'overdue' ? '#dc2626' : '#64748b',
+              fontWeight: activeTab === 'overdue' ? '600' : '400',
+              borderBottom: activeTab === 'overdue' ? '3px solid #dc2626' : '3px solid transparent',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <AlertCircle style={{ width: '1rem', height: '1rem', color: activeTab === 'overdue' ? '#dc2626' : undefined }} />
+            Overdue
+          </button>
+          <button
+            onClick={() => setActiveTab('settled')}
+            style={{
+              padding: '1rem 0',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'settled' ? '#059669' : '#64748b',
+              fontWeight: activeTab === 'settled' ? '600' : '400',
+              borderBottom: activeTab === 'settled' ? '3px solid #059669' : '3px solid transparent',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <CheckCircle style={{ width: '1rem', height: '1rem', color: activeTab === 'settled' ? '#059669' : undefined }} />
+            Settled/Completed
+          </button>
         </div>
       </div>
 
       {/* Content */}
       <div style={{ padding: '2rem' }}>
+        {/* Invoice Status Tabs Content */}
+        {['partial', 'overdue', 'settled'].includes(activeTab) && (
+          <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            {/* Search Bar */}
+            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                <Search style={{
+                  position: 'absolute',
+                  left: '0.75rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '1rem',
+                  height: '1rem',
+                  color: '#94a3b8'
+                }} />
+                <input
+                  type="text"
+                  placeholder="Search by invoice number, customer, or vehicle..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value)
+                    // Debounce search
+                    setTimeout(() => {
+                      if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
+                        const statusMap: Record<string, string> = {
+                          'entries': 'all',
+                          'partial': 'partial',
+                          'overdue': 'overdue',
+                          'settled': 'paid'
+                        }
+                        fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
+                      }
+                    }, 500)
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.75rem 0.625rem 2.5rem',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    outline: 'none',
+                    backgroundColor: 'white',
+                    transition: 'border-color 0.2s'
+                  }}
+                  onFocus={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+            </div>
+
+            {/* Invoices Table */}
+            {invoicesLoading && activeTab !== 'settled' ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>Loading invoices...</div>
+            ) : (activeTab === 'settled' && invoicesLoading && completedLoading) ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>Loading settled entries...</div>
+            ) : (activeTab === 'settled' && invoices.length === 0 && completedEntries.length === 0) ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                No settled invoices or completed entries found
+              </div>
+            ) : invoices.length === 0 && activeTab !== 'settled' ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                No {activeTab} invoices found
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Invoice #</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Customer</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Vehicle</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Invoice Date</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Due Date</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Total</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Paid</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Balance</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((invoice: any) => {
+                      const vehicle = invoice.vehicle_inward?.vehicles
+                      const customer = vehicle?.customers
+                      const statusColors: Record<string, string> = {
+                        draft: '#64748b',
+                        issued: '#3b82f6',
+                        partial: '#f59e0b',
+                        paid: '#10b981',
+                        overdue: '#ef4444',
+                        cancelled: '#94a3b8'
+                      }
+                      return (
+                        <tr key={invoice.id} style={{ borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          onClick={() => setSelectedInvoice(invoice.id)}
+                        >
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', fontWeight: '600' }}>
+                            {invoice.invoice_number || 'Draft'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            {customer?.name || 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            {vehicle?.registration_number || 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            {invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            }) : 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            {invoice.due_date ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span>
+                                  {new Date(invoice.due_date).toLocaleDateString('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                                {new Date(invoice.due_date) < new Date() && invoice.status !== 'paid' && (
+                                  <AlertCircle style={{ width: '0.875rem', height: '0.875rem', color: '#dc2626' }} title="Overdue" />
+                                )}
+                              </div>
+                            ) : 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <span style={{
+                              padding: '0.25rem 0.75rem',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                              backgroundColor: statusColors[invoice.status] || '#94a3b8',
+                              color: 'white',
+                              textTransform: 'capitalize',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem'
+                            }}>
+                              {invoice.status === 'overdue' && <AlertCircle style={{ width: '0.75rem', height: '0.75rem' }} />}
+                              {invoice.status === 'paid' && <CheckCircle style={{ width: '0.75rem', height: '0.75rem' }} />}
+                              {invoice.status === 'partial' && <Clock style={{ width: '0.75rem', height: '0.75rem' }} />}
+                              {invoice.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: '600' }}>
+                            ₹{parseFloat(invoice.total_amount || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', color: '#10b981' }}>
+                            ₹{parseFloat(invoice.paid_amount || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: '600', color: '#ef4444' }}>
+                            ₹{parseFloat(invoice.balance_amount || 0).toLocaleString('en-IN')}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedInvoice(invoice.id)
+                              }}
+                              style={{
+                                padding: '0.375rem 0.75rem',
+                                backgroundColor: '#eff6ff',
+                                color: '#2563eb',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <Eye style={{ width: '0.875rem', height: '0.875rem', display: 'inline' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Completed Entries Section (for Settled/Completed tab) */}
+            {activeTab === 'settled' && completedEntries.length > 0 && (
+              <div style={{ marginTop: '2rem', borderTop: '2px solid #e2e8f0', paddingTop: '2rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#1e293b', marginBottom: '1rem' }}>
+                  Completed Entries ({completedEntries.length})
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Entry ID</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Customer</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Vehicle</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Completed Date</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Total Amount</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedEntries
+                        .filter(entry => {
+                          if (!searchTerm) return true
+                          const searchLower = searchTerm.toLowerCase()
+                          return (
+                            entry.customerName.toLowerCase().includes(searchLower) ||
+                            entry.vehicleNumber.toLowerCase().includes(searchLower) ||
+                            entry.shortId?.toLowerCase().includes(searchLower) ||
+                            entry.invoiceNumber?.toLowerCase().includes(searchLower)
+                          )
+                        })
+                        .map((entry) => (
+                        <tr
+                          key={entry.id}
+                          onClick={() => setSelectedEntry(entry)}
+                          style={{
+                            borderBottom: '1px solid #e2e8f0',
+                            cursor: 'pointer',
+                            backgroundColor: selectedEntry?.id === entry.id ? '#eff6ff' : 'white'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (selectedEntry?.id !== entry.id) {
+                              e.currentTarget.style.backgroundColor = '#f8fafc'
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (selectedEntry?.id !== entry.id) {
+                              e.currentTarget.style.backgroundColor = 'white'
+                            }
+                          }}
+                        >
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            <span style={{
+                              padding: '0.25rem 0.5rem',
+                              backgroundColor: '#059669',
+                              color: 'white',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '600'
+                            }}>
+                              {entry.shortId || entry.id.substring(0, 8)}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', fontWeight: '500' }}>
+                            {entry.customerName}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {entry.model} ({entry.vehicleNumber})
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {formatDate(entry.completed_at || entry.installationCompleteDate)}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <span style={getStatusBadgeStyle(entry.entryStatus || 'Na')}>
+                              {entry.entryStatus || 'Na'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: '600', color: '#059669' }}>
+                            {formatCurrency(entry.finalAmount || entry.totalAmount)}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedEntry(entry)
+                              }}
+                              style={{
+                                padding: '0.375rem 0.75rem',
+                                backgroundColor: '#eff6ff',
+                                color: '#2563eb',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <Eye style={{ width: '0.875rem', height: '0.875rem', display: 'inline' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Legacy Tabs - Keep for backward compatibility */}
         {activeTab === 'entries' && (
           <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
             {/* Search Bar */}
@@ -1163,8 +1990,8 @@ export default function AccountsPageClient() {
               </div>
             </div>
 
-            {/* Entries List */}
-            <div style={{ maxHeight: 'calc(100vh - 400px)', overflowY: 'auto' }}>
+            {/* Entries Table */}
+            <div style={{ overflowX: 'auto' }}>
               {filteredEntries.length === 0 ? (
                 <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
                   <FileText style={{ width: '3rem', height: '3rem', color: '#cbd5e1', margin: '0 auto 1rem' }} />
@@ -1178,38 +2005,44 @@ export default function AccountsPageClient() {
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
-                  {filteredEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      onClick={() => setSelectedEntry(entry)}
-                              style={{
-                        backgroundColor: selectedEntry?.id === entry.id ? '#eff6ff' : '#f9fafb',
-                        borderRadius: '0.75rem',
-                        border: selectedEntry?.id === entry.id ? '2px solid #2563eb' : '1px solid #e2e8f0',
-                        padding: '1.5rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        boxShadow: selectedEntry?.id === entry.id ? '0 4px 6px -1px rgba(37, 99, 235, 0.1)' : '0 1px 2px rgba(0,0,0,0.05)'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedEntry?.id !== entry.id) {
-                          e.currentTarget.style.backgroundColor = '#f1f5f9'
-                          e.currentTarget.style.borderColor = '#cbd5e1'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedEntry?.id !== entry.id) {
-                          e.currentTarget.style.backgroundColor = '#f9fafb'
-                          e.currentTarget.style.borderColor = '#e2e8f0'
-                        }
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                            <div style={{
-                              padding: '0.25rem 0.75rem',
+                <>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Entry ID</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Customer</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Vehicle</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Completion Date</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Total Amount</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedEntries.map((entry) => (
+                        <tr
+                          key={entry.id}
+                          onClick={() => setSelectedEntry(entry)}
+                          style={{
+                            borderBottom: '1px solid #e2e8f0',
+                            cursor: 'pointer',
+                            backgroundColor: selectedEntry?.id === entry.id ? '#eff6ff' : 'white',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (selectedEntry?.id !== entry.id) {
+                              e.currentTarget.style.backgroundColor = '#f8fafc'
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (selectedEntry?.id !== entry.id) {
+                              e.currentTarget.style.backgroundColor = 'white'
+                            }
+                          }}
+                        >
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                            <span style={{
+                              padding: '0.25rem 0.5rem',
                               backgroundColor: '#059669',
                               color: 'white',
                               borderRadius: '0.375rem',
@@ -1217,113 +2050,146 @@ export default function AccountsPageClient() {
                               fontWeight: '600'
                             }}>
                               {entry.shortId || entry.id.substring(0, 8)}
-                            </div>
-                            <h3 style={{ fontSize: '1.125rem', fontWeight: '700', color: '#1e293b', margin: 0 }}>
-                              {entry.customerName}
-                            </h3>
-                            <span style={{
-                              padding: '0.25rem 0.75rem',
-                              backgroundColor: '#dcfce7',
-                              color: '#166534',
-                              borderRadius: '9999px',
-                              fontSize: '0.75rem',
-                              fontWeight: '500',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.25rem'
-                            }}>
-                              <CheckCircle style={{ width: '0.75rem', height: '0.75rem' }} />
-                              Installation Complete
                             </span>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', fontSize: '0.875rem', color: '#64748b' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <Car style={{ width: '1rem', height: '1rem' }} />
-                              <span>{entry.model} ({entry.vehicleNumber})</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <Calendar style={{ width: '1rem', height: '1rem' }} />
-                              <span>Completed: {formatDate(entry.installationCompleteDate)}</span>
-                            </div>
-                            {entry.location && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <MapPin style={{ width: '1rem', height: '1rem' }} />
-                                <span>{locationNames.get(entry.location) || entry.location}</span>
-                              </div>
-                            )}
-                            {entry.manager && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <User style={{ width: '1rem', height: '1rem' }} />
-                                <span>{managerNames.get(entry.manager) || entry.manager}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.25rem' }}>Total Amount</div>
-                          <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#059669' }}>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', fontWeight: '500', color: '#1e293b' }}>
+                            {entry.customerName}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {entry.model} ({entry.vehicleNumber})
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {formatDate(entry.installationCompleteDate)}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <span style={getStatusBadgeStyle(entry.entryStatus || 'Na')}>
+                              {entry.entryStatus || 'Na'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: '600', color: '#059669' }}>
                             {formatCurrency(entry.totalAmount)}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
-                            {entry.products.length} {entry.products.length === 1 ? 'product' : 'products'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Products Preview */}
-                      {entry.products.length > 0 && (
-                        <div style={{
-                          backgroundColor: 'white',
-                          borderRadius: '0.5rem',
-                          padding: '1rem',
-                          border: '1px solid #e2e8f0',
-                          marginTop: '1rem'
-                        }}>
-                          <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Package style={{ width: '1rem', height: '1rem' }} />
-                            Product Details ({entry.products.length})
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '0.75rem' }}>
-                            {entry.products.slice(0, 3).map((product, idx) => (
-                              <div key={idx} style={{
-                                padding: '0.75rem',
-                                backgroundColor: '#f9fafb',
-                                borderRadius: '0.5rem',
-                                border: '1px solid #e5e7eb'
-                              }}>
-                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#1e293b', marginBottom: '0.25rem' }}>
-                                  {product.product}
-                                </div>
-                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>
-                                  Brand: {product.brand} | {departmentNames.get(product.department) || product.department}
-                                </div>
-                                <div style={{ fontSize: '0.875rem', fontWeight: '700', color: '#059669' }}>
-                                  {formatCurrency(product.price)}
-                                </div>
-                              </div>
-                            ))}
-                            {entry.products.length > 3 && (
-                              <div style={{
-                                padding: '0.75rem',
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedEntry(entry)
+                              }}
+                              style={{
+                                padding: '0.375rem 0.75rem',
                                 backgroundColor: '#eff6ff',
-                                borderRadius: '0.5rem',
-                                border: '1px solid #bfdbfe',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.875rem',
                                 color: '#2563eb',
-                                fontWeight: '500'
-                              }}>
-                                +{entry.products.length - 3} more
-                              </div>
-                            )}
-                          </div>
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dbeafe'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                            >
+                              <Eye style={{ width: '0.875rem', height: '0.875rem' }} />
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div style={{ padding: '1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                        Showing {startIndex + 1} to {Math.min(endIndex, filteredEntries.length)} of {filteredEntries.length} entries
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            backgroundColor: currentPage === 1 ? '#f3f4f6' : 'white',
+                            color: currentPage === 1 ? '#9ca3af' : '#374151',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Previous
+                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum
+                            if (totalPages <= 5) {
+                              pageNum = i + 1
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i
+                            } else {
+                              pageNum = currentPage - 2 + i
+                            }
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setCurrentPage(pageNum)}
+                                style={{
+                                  padding: '0.5rem 0.75rem',
+                                  backgroundColor: currentPage === pageNum ? '#2563eb' : 'white',
+                                  color: currentPage === pageNum ? 'white' : '#374151',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '0.375rem',
+                                  fontSize: '0.875rem',
+                                  fontWeight: currentPage === pageNum ? '600' : '500',
+                                  cursor: 'pointer',
+                                  minWidth: '2.5rem',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (currentPage !== pageNum) {
+                                    e.currentTarget.style.backgroundColor = '#f3f4f6'
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (currentPage !== pageNum) {
+                                    e.currentTarget.style.backgroundColor = 'white'
+                                  }
+                                }}
+                              >
+                                {pageNum}
+                              </button>
+                            )
+                          })}
                         </div>
-                      )}
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            backgroundColor: currentPage === totalPages ? '#f3f4f6' : 'white',
+                            color: currentPage === totalPages ? '#9ca3af' : '#374151',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Next
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1680,30 +2546,26 @@ export default function AccountsPageClient() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            backgroundColor: 'white',
             zIndex: 1000,
-            padding: '2rem'
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
           }}
-          onClick={() => setSelectedEntry(null)}
         >
           <div
             style={{
               backgroundColor: 'white',
-              borderRadius: '1rem',
               width: '100%',
-              maxWidth: '900px',
-              maxHeight: '90vh',
+              height: '100%',
               overflow: 'auto',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.25)'
+              display: 'flex',
+              flexDirection: 'column'
             }}
-            onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
             <div style={{
-              padding: '1.5rem',
+              padding: '1.5rem 2rem',
               borderBottom: '1px solid #e5e7eb',
               display: 'flex',
               justifyContent: 'space-between',
@@ -1711,7 +2573,8 @@ export default function AccountsPageClient() {
               position: 'sticky',
               top: 0,
               backgroundColor: 'white',
-              zIndex: 10
+              zIndex: 10,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }}>
               <div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', margin: 0 }}>
@@ -1748,72 +2611,91 @@ export default function AccountsPageClient() {
               </button>
             </div>
 
+            {/* Responsive Styles */}
+            <style>{`
+              @media (max-width: 1200px) {
+                .account-details-grid {
+                  grid-template-columns: 1fr !important;
+                }
+              }
+              @media (max-width: 768px) {
+                .account-details-grid {
+                  padding: 1.5rem !important;
+                  gap: 1.5rem !important;
+                }
+              }
+            `}</style>
+            
             {/* Modal Content */}
-            <div style={{ padding: '1.5rem' }}>
-              {/* Customer Information */}
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <User style={{ width: '1.25rem', height: '1.25rem' }} />
-                  Customer Information
+            <div 
+              className="account-details-grid"
+              style={{ 
+                padding: '2rem', 
+                flex: 1, 
+                overflow: 'auto',
+                maxWidth: '1600px',
+                margin: '0 auto',
+                width: '100%',
+                display: 'grid',
+                gridTemplateColumns: '1.5fr 1fr',
+                gap: '1.5rem',
+                alignItems: 'start'
+              }}
+            >
+              {/* Left Column */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Customer & Vehicle Information - Merged */}
+              <div>
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <User style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
+                  Customer & Vehicle Information
                 </h3>
-                <div style={{ backgroundColor: '#f9fafb', borderRadius: '0.75rem', padding: '1.25rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  borderRadius: '0.5rem', 
+                  padding: '1rem',
+                  border: '1px solid #e5e7eb',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Name</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.customerName}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Customer Name</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.customerName}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Phone</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.customerPhone}</div>
-                    </div>
-                    {selectedEntry.customerEmail && (
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Email</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.customerEmail}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Vehicle Information */}
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Car style={{ width: '1.25rem', height: '1.25rem' }} />
-                  Vehicle Information
-                </h3>
-                <div style={{ backgroundColor: '#f9fafb', borderRadius: '0.75rem', padding: '1.25rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Vehicle Number</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.vehicleNumber}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Phone</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.customerPhone}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Model</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.model}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Vehicle Number</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.vehicleNumber}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Make</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.make}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Model</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.model}</div>
                     </div>
-                    {selectedEntry.year && (
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Year</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.year}</div>
-                      </div>
-                    )}
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Make</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.make}</div>
+                    </div>
                     {selectedEntry.color && (
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Color</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>{selectedEntry.color}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Color</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.color}</div>
                       </div>
                     )}
                     {selectedEntry.vehicleType && (
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Vehicle Type</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Vehicle Type</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
                           {vehicleTypeNames.get(selectedEntry.vehicleType) || selectedEntry.vehicleType}
                         </div>
+                      </div>
+                    )}
+                    {selectedEntry.customerEmail && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Email</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>{selectedEntry.customerEmail}</div>
                       </div>
                     )}
                   </div>
@@ -1821,23 +2703,45 @@ export default function AccountsPageClient() {
               </div>
 
               {/* Installation Details */}
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Calendar style={{ width: '1.25rem', height: '1.25rem' }} />
+              <div>
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Calendar style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
                   Installation Details
                 </h3>
-                <div style={{ backgroundColor: '#f9fafb', borderRadius: '0.75rem', padding: '1.25rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  borderRadius: '0.5rem', 
+                  padding: '1rem',
+                  border: '1px solid #e5e7eb',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                    {selectedEntry.manager && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Assigned Manager</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
+                          {managerNames.get(selectedEntry.manager) || selectedEntry.manager}
+                        </div>
+                      </div>
+                    )}
+                    {selectedEntry.location && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Location</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
+                          {locationNames.get(selectedEntry.location) || selectedEntry.location}
+                        </div>
+                      </div>
+                    )}
                     <div>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Installation Complete Date</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Installation Complete Date</div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
                         {formatDate(selectedEntry.installationCompleteDate)}
                       </div>
                     </div>
                     {selectedEntry.expectedDelivery && (
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Expected Delivery</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: '500' }}>Expected Delivery</div>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: '400', color: '#111827' }}>
                           {new Date(selectedEntry.expectedDelivery).toLocaleDateString('en-IN', {
                             day: '2-digit',
                             month: 'short',
@@ -1846,31 +2750,15 @@ export default function AccountsPageClient() {
                         </div>
                       </div>
                     )}
-                    {selectedEntry.location && (
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Location</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
-                          {locationNames.get(selectedEntry.location) || selectedEntry.location}
-                        </div>
-                      </div>
-                    )}
-                    {selectedEntry.manager && (
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Assigned Manager</div>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
-                          {managerNames.get(selectedEntry.manager) || selectedEntry.manager}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
 
               {/* Product Details with Prices - Editable */}
-              <div style={{ marginBottom: '2rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                    <Package style={{ width: '1.25rem', height: '1.25rem' }} />
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: '600', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                    <Package style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
                     Product Details & Pricing
                   </h3>
                   {!editingProducts && (
@@ -1884,8 +2772,8 @@ export default function AccountsPageClient() {
                         backgroundColor: '#2563eb',
                         color: 'white',
                         border: 'none',
-                        borderRadius: '0.5rem',
-                        fontSize: '0.875rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.8125rem',
                         fontWeight: '600',
                         cursor: 'pointer',
                         transition: 'all 0.2s'
@@ -1893,25 +2781,31 @@ export default function AccountsPageClient() {
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
                     >
-                      <Edit2 style={{ width: '1rem', height: '1rem' }} />
+                      <Edit2 style={{ width: '0.875rem', height: '0.875rem' }} />
                       Edit Products
                     </button>
                   )}
                 </div>
-                <div style={{ backgroundColor: 'white', borderRadius: '0.75rem', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  borderRadius: '0.5rem', 
+                  border: '1px solid #e5e7eb', 
+                  overflow: 'hidden',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead style={{ backgroundColor: '#f9fafb' }}>
                       <tr>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' }}>
                           Product
                         </th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' }}>
                           Brand
                         </th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' }}>
                           Department
                         </th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' }}>
                           Price
                         </th>
                       </tr>
@@ -1931,11 +2825,11 @@ export default function AccountsPageClient() {
                                     padding: '0.5rem',
                                     border: '1px solid #d1d5db',
                                     borderRadius: '0.375rem',
-                                    fontSize: '0.875rem'
+                                    fontSize: '0.8125rem'
                                   }}
                                 />
                               ) : (
-                                <span style={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: '500' }}>
+                                <span style={{ fontSize: '0.8125rem', color: '#1e293b', fontWeight: '400' }}>
                                   {product.product}
                                 </span>
                               )}
@@ -1951,11 +2845,11 @@ export default function AccountsPageClient() {
                                     padding: '0.5rem',
                                     border: '1px solid #d1d5db',
                                     borderRadius: '0.375rem',
-                                    fontSize: '0.875rem'
+                                    fontSize: '0.8125rem'
                                   }}
                                 />
                               ) : (
-                                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                                <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                                   {product.brand}
                                 </span>
                               )}
@@ -1970,7 +2864,7 @@ export default function AccountsPageClient() {
                                     padding: '0.5rem',
                                     border: '1px solid #d1d5db',
                                     borderRadius: '0.375rem',
-                                    fontSize: '0.875rem',
+                                    fontSize: '0.8125rem',
                                     backgroundColor: 'white'
                                   }}
                                 >
@@ -1979,7 +2873,7 @@ export default function AccountsPageClient() {
                                   ))}
                                 </select>
                               ) : (
-                                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                                <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                                   {departmentNames.get(product.department) || product.department}
                                 </span>
                               )}
@@ -1997,12 +2891,12 @@ export default function AccountsPageClient() {
                                     padding: '0.5rem',
                                     border: '1px solid #d1d5db',
                                     borderRadius: '0.375rem',
-                                    fontSize: '0.875rem',
+                                    fontSize: '0.8125rem',
                                     textAlign: 'right'
                                   }}
                                 />
                               ) : (
-                                <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#059669' }}>
+                                <span style={{ fontSize: '0.8125rem', fontWeight: '600', color: '#059669' }}>
                                   {formatCurrency(product.price)}
                                 </span>
                               )}
@@ -2011,7 +2905,7 @@ export default function AccountsPageClient() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                          <td colSpan={4} style={{ padding: '1.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.8125rem' }}>
                             No products listed
                           </td>
                         </tr>
@@ -2019,10 +2913,10 @@ export default function AccountsPageClient() {
                     </tbody>
                     <tfoot style={{ backgroundColor: '#f9fafb', borderTop: '2px solid #e5e7eb' }}>
                       <tr>
-                        <td colSpan={3} style={{ padding: '1rem', fontSize: '1rem', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>
-                          Total Amount:
+                        <td colSpan={3} style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', fontWeight: '600', color: '#1e293b', textAlign: 'right' }}>
+                          Subtotal:
                         </td>
-                        <td style={{ padding: '1rem', fontSize: '1.125rem', fontWeight: '700', color: '#059669', textAlign: 'right' }}>
+                        <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem', fontWeight: '700', color: '#059669', textAlign: 'right' }}>
                           {formatCurrency(editedProducts.reduce((sum, p) => sum + p.price, 0))}
                         </td>
                       </tr>
@@ -2073,304 +2967,161 @@ export default function AccountsPageClient() {
                 )}
               </div>
 
-              {/* Discount Information - Only for Completed Entries */}
-              {selectedEntry.status === 'completed' && (
-                <div style={{ marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                      <Percent style={{ width: '1.25rem', height: '1.25rem' }} />
-                      Discount Information
-                    </h3>
-                    {!editingDiscount && (
-                      <button
-                        onClick={() => setEditingDiscount(true)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.5rem 1rem',
-                          backgroundColor: '#ef4444',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem',
-                          fontWeight: '600',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <Edit2 style={{ width: '1rem', height: '1rem' }} />
-                        {selectedEntry.discountAmount && selectedEntry.discountAmount > 0 ? 'Edit Discount' : 'Add Discount'}
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ backgroundColor: '#f9fafb', borderRadius: '0.75rem', padding: '1.25rem', border: '1px solid #e5e7eb' }}>
-                    {editingDiscount ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <div>
-                          <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem', display: 'block' }}>
-                            Discount Amount (Rs.)
-                          </label>
-                          <input
-                            type="number"
-                            value={discountAmount}
-                            onChange={(e) => setDiscountAmount(e.target.value)}
-                            min="0"
-                            step="0.01"
-                            placeholder="Enter discount amount"
-                            style={{
-                              width: '100%',
-                              padding: '0.625rem',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem', display: 'block' }}>
-                            Offered By (Name/Department)
-                          </label>
-                          <input
-                            type="text"
-                            value={discountOfferedBy}
-                            onChange={(e) => setDiscountOfferedBy(e.target.value)}
-                            placeholder="e.g., Manager Name, Sales Team"
-                            style={{
-                              width: '100%',
-                              padding: '0.625rem',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem', display: 'block' }}>
-                            Discount Reason
-                          </label>
-                          <textarea
-                            value={discountReason}
-                            onChange={(e) => setDiscountReason(e.target.value)}
-                            placeholder="Reason for discount (e.g., Bulk order, Loyalty customer)"
-                            rows={3}
-                            style={{
-                              width: '100%',
-                              padding: '0.625rem',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
-                              resize: 'vertical'
-                            }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                          <button
-                            onClick={() => {
-                              setEditingDiscount(false)
-                              if (selectedEntry) {
-                                setDiscountAmount(selectedEntry.discountAmount?.toString() || '')
-                                setDiscountOfferedBy(selectedEntry.discountOfferedBy || '')
-                                setDiscountReason(selectedEntry.discountReason || '')
-                              }
-                            }}
-                            style={{
-                              padding: '0.5rem 1rem',
-                              backgroundColor: '#f3f4f6',
-                              color: '#374151',
-                              border: 'none',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
-                              fontWeight: '600',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (!selectedEntry) return
-                              try {
-                                setSavingDiscount(true)
-                                const discount = parseFloat(discountAmount) || 0
-                                const discountPercentage = selectedEntry.totalAmount > 0 ? (discount / selectedEntry.totalAmount) * 100 : 0
-                                
-                                // Store discount data in notes field as JSON
-                                const discountData = {
-                                  discount_amount: discount,
-                                  discount_percentage: discountPercentage,
-                                  discount_offered_by: discountOfferedBy,
-                                  discount_reason: discountReason
-                                }
-                                
-                                // Get existing notes or create new
-                                const tenantId = getCurrentTenantId()
-                                const isSuper = isSuperAdmin()
-                                
-                                let notesQuery = supabase
-                                  .from('vehicle_inward')
-                                  .select('notes')
-                                  .eq('id', selectedEntry.id)
-                                
-                                if (!isSuper && tenantId) {
-                                  notesQuery = notesQuery.eq('tenant_id', tenantId)
-                                }
-                                
-                                const { data: existing } = await notesQuery.single()
-                                
-                                let notesData: any = {}
-                                if (existing?.notes) {
-                                  try {
-                                    notesData = JSON.parse(existing.notes)
-                                  } catch {
-                                    notesData = {}
-                                  }
-                                }
-                                
-                                notesData.discount = discountData
-                                
-                                let updateNotesQuery = supabase
-                                  .from('vehicle_inward')
-                                  .update({ notes: JSON.stringify(notesData) })
-                                  .eq('id', selectedEntry.id)
-                                
-                                if (!isSuper && tenantId) {
-                                  updateNotesQuery = updateNotesQuery.eq('tenant_id', tenantId)
-                                }
-                                
-                                const { error } = await updateNotesQuery
-                                
-                                if (error) throw error
-                                
-                                // Update local state
-                                const updatedEntry = {
-                                  ...selectedEntry,
-                                  discountAmount: discount,
-                                  discountPercentage: discountPercentage,
-                                  discountOfferedBy: discountOfferedBy,
-                                  discountReason: discountReason,
-                                  finalAmount: selectedEntry.totalAmount - discount
-                                }
-                                setSelectedEntry(updatedEntry)
-                                
-                                // Update in completed entries list
-                                if (activeTab === 'completed') {
-                                  setCompletedEntries(completedEntries.map(e => 
-                                    e.id === selectedEntry.id ? updatedEntry : e
-                                  ))
-                                }
-                                
-                                setEditingDiscount(false)
-                                alert('Discount information saved successfully!')
-                                await fetchCompletedEntries()
-                              } catch (error: any) {
-                                console.error('Error saving discount:', error)
-                                alert(`Failed to save discount: ${error.message}`)
-                              } finally {
-                                setSavingDiscount(false)
-                              }
-                            }}
-                            disabled={savingDiscount}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
-                              padding: '0.5rem 1rem',
-                              backgroundColor: savingDiscount ? '#9ca3af' : '#059669',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '0.5rem',
-                              fontSize: '0.875rem',
-                              fontWeight: '600',
-                              cursor: savingDiscount ? 'not-allowed' : 'pointer'
-                            }}
-                          >
-                            <Save style={{ width: '1rem', height: '1rem' }} />
-                            {savingDiscount ? 'Saving...' : 'Save Discount'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                        <div>
-                          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Discount Amount</div>
-                          <div style={{ fontSize: '0.875rem', fontWeight: '600', color: selectedEntry.discountAmount && selectedEntry.discountAmount > 0 ? '#ef4444' : '#9ca3af' }}>
-                            {selectedEntry.discountAmount && selectedEntry.discountAmount > 0 
-                              ? formatCurrency(selectedEntry.discountAmount) 
-                              : 'No discount'}
-                          </div>
-                        </div>
-                        {selectedEntry.discountAmount && selectedEntry.discountAmount > 0 && (
-                          <>
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Discount Percentage</div>
-                              <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#ef4444' }}>
-                                {selectedEntry.discountPercentage?.toFixed(2) || '0'}%
-                              </div>
-                            </div>
-                            {selectedEntry.discountOfferedBy && (
-                              <div>
-                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Offered By</div>
-                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
-                                  {selectedEntry.discountOfferedBy}
-                                </div>
-                              </div>
-                            )}
-                            {selectedEntry.discountReason && (
-                              <div style={{ gridColumn: '1 / -1' }}>
-                                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Reason</div>
-                                <div style={{ fontSize: '0.875rem', color: '#374151' }}>
-                                  {selectedEntry.discountReason}
-                                </div>
-                              </div>
-                            )}
-                            <div style={{ gridColumn: '1 / -1', padding: '1rem', backgroundColor: 'white', borderRadius: '0.5rem', marginTop: '0.5rem', border: '1px solid #e5e7eb' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '1rem', fontWeight: '600', color: '#374151' }}>Final Amount (After Discount):</span>
-                                <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#10b981' }}>
-                                  {formatCurrency(selectedEntry.finalAmount || selectedEntry.totalAmount)}
-                                </span>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* Payments details Section - Moved to Right Column (see right column) */}
+              {/* Note: Payment Details, Invoice Number, and Invoice References have been moved to the right column for better layout */}
 
-              {/* Invoice Number - Editable for Admin and Accountant */}
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
-                  Invoice Number
-                </h3>
-                {(userRole === 'admin' || userRole === 'accountant') ? (
-                  <div style={{ 
-                    backgroundColor: '#f0f9ff', 
-                    borderRadius: '0.75rem', 
-                    padding: '1.25rem',
-                    border: '1px solid #bae6fd'
+
+
+              {/* Comments and Attachments - Collapsible */}
+              <div style={{ 
+                backgroundColor: 'white', 
+                borderRadius: '0.5rem', 
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                overflow: 'hidden'
+              }}>
+                {/* Collapsible Header */}
+                <button
+                  onClick={() => setCommentsExpanded(!commentsExpanded)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.75rem 1rem',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s',
+                    textAlign: 'left'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f9fafb'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <MessageSquare style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
+                    <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>
+                      Comments & Attachments
+                    </span>
+                  </div>
+                  {commentsExpanded ? (
+                    <ChevronUp style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                  ) : (
+                    <ChevronDown style={{ width: '1rem', height: '1rem', color: '#64748b' }} />
+                  )}
+                </button>
+                
+                {/* Collapsible Content */}
+                {commentsExpanded && (
+                  <div style={{
+                    padding: '0.75rem',
+                    maxHeight: '500px',
+                    overflowY: 'auto',
+                    borderTop: '1px solid #e5e7eb',
+                    transition: 'all 0.3s ease'
                   }}>
-                    {editingInvoiceNumber ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#0369a1', fontWeight: '600', marginBottom: '0.25rem' }}>
-                          Invoice Number (External Platform):
+                    <VehicleCommentsSection vehicleId={selectedEntry.id} userRole={userRole} />
+                  </div>
+                )}
+              </div>
+              </div>
+
+              {/* Right Column - Sticky */}
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '1.5rem',
+                position: 'sticky',
+                top: '1rem',
+                alignSelf: 'start',
+                maxHeight: 'calc(100vh - 2rem)',
+                overflowY: 'auto'
+              }}>
+                {/* Order Summary Card - Sticky at Top */}
+                {selectedEntry && (() => {
+                  const subtotal = selectedEntry.products.reduce((sum, p) => sum + p.price, 0)
+                  const discount = selectedInvoiceForPayment?.discount_amount || (selectedEntry.notes ? (() => {
+                    try {
+                      const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                      return notes.discount?.discount_amount || 0
+                    } catch {
+                      return 0
+                    }
+                  })() : 0)
+                  const tax = parseFloat(selectedInvoiceForPayment?.tax_amount || 0)
+                  const total = subtotal - discount + tax
+                  
+                  return (
+                    <div style={{
+                      backgroundColor: 'white',
+                      borderRadius: '0.5rem',
+                      padding: '1rem',
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}>
+                      <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem' }}>
+                        Order Summary
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+                          <span>Subtotal:</span>
+                          <span style={{ fontWeight: '500', color: '#1e293b' }}>₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {discount > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
+                            <span>Discount:</span>
+                            <span style={{ fontWeight: '500' }}>-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        )}
+                        {tax > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+                            <span>Tax:</span>
+                            <span style={{ fontWeight: '500', color: '#1e293b' }}>₹{tax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        )}
+                        <div style={{ borderTop: '1px solid #e5e7eb', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', fontWeight: '700', color: '#0c4a6e' }}>
+                          <span>Total:</span>
+                          <span>₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Invoice Section */}
+                <div>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <FileText style={{ width: '0.875rem', height: '0.875rem' }} />
+                    Invoice
+                  </h3>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    padding: '1rem', 
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                  }}>
+                    {(userRole === 'admin' || userRole === 'accountant') ? (
+                      editingInvoiceNumber ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <input
                             type="text"
                             value={invoiceNumberInput}
                             onChange={(e) => setInvoiceNumberInput(e.target.value)}
-                            placeholder="Enter invoice number from external platform"
+                            placeholder="Invoice number"
                             style={{
-                              flex: 1,
-                              padding: '0.625rem',
-                              borderRadius: '0.5rem',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '0.875rem',
-                              outline: 'none',
-                              focus: { borderColor: '#0284c7' }
+                              width: '100%',
+                              padding: '0.5rem',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem'
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -2382,338 +3133,784 @@ export default function AccountsPageClient() {
                             }}
                             autoFocus
                           />
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                              onClick={handleInvoiceNumberUpdate}
+                              disabled={updatingInvoiceNumber}
+                              style={{
+                                flex: 1,
+                                padding: '0.5rem',
+                                backgroundColor: '#0284c7',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '500',
+                                cursor: updatingInvoiceNumber ? 'not-allowed' : 'pointer'
+                              }}
+                            >
+                              {updatingInvoiceNumber ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingInvoiceNumber(false)
+                                setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                              }}
+                              style={{
+                                padding: '0.5rem',
+                                backgroundColor: '#f3f4f6',
+                                color: '#374151',
+                                border: 'none',
+                                borderRadius: '0.375rem',
+                                fontSize: '0.75rem',
+                                fontWeight: '500',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Invoice Number</div>
+                            <div style={{ fontSize: '0.8125rem', fontWeight: '600', color: selectedEntry.invoiceNumber ? '#0c4a6e' : '#9ca3af' }}>
+                              {selectedEntry.invoiceNumber || 'Not set'}
+                            </div>
+                          </div>
                           <button
-                            onClick={handleInvoiceNumberUpdate}
-                            disabled={updatingInvoiceNumber}
+                            onClick={() => {
+                              setEditingInvoiceNumber(true)
+                              setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                            }}
                             style={{
-                              padding: '0.625rem 1rem',
-                              borderRadius: '0.5rem',
+                              padding: '0.375rem 0.75rem',
                               backgroundColor: '#0284c7',
                               color: 'white',
                               border: 'none',
-                              cursor: updatingInvoiceNumber ? 'not-allowed' : 'pointer',
-                              fontSize: '0.875rem',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.75rem',
                               fontWeight: '500',
+                              cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '0.5rem',
-                              opacity: updatingInvoiceNumber ? 0.6 : 1
+                              gap: '0.25rem'
                             }}
                           >
-                            {updatingInvoiceNumber ? 'Saving...' : 'Save'}
+                            <Edit2 style={{ width: '0.75rem', height: '0.75rem' }} />
+                            {selectedEntry.invoiceNumber ? 'Edit' : 'Add'}
                           </button>
+                        </div>
+                      )
+                    ) : (
+                      selectedEntry.invoiceNumber && (
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Invoice Number</div>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: '600', color: '#0c4a6e' }}>
+                            {selectedEntry.invoiceNumber}
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Discount Section */}
+                <div>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Percent style={{ width: '0.875rem', height: '0.875rem', color: '#d97706' }} />
+                    Discount
+                  </h3>
+                  <div style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: '0.5rem', 
+                    padding: '1rem', 
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                  }}>
+                    {!editingDiscount ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          {(() => {
+                            const currentDiscount = selectedInvoiceForPayment?.discount_amount || 
+                              (selectedEntry?.notes ? (() => {
+                                try {
+                                  const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                                  return notes.discount?.discount_amount || 0
+                                } catch {
+                                  return 0
+                                }
+                              })() : 0)
+                            return currentDiscount > 0 ? (
+                              <div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Amount</div>
+                                <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#dc2626' }}>
+                                  -₹{parseFloat(currentDiscount.toString()).toLocaleString('en-IN')}
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.8125rem', color: '#9ca3af' }}>No discount</div>
+                            )
+                          })()}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingDiscount(true)
+                            if (selectedInvoiceForPayment) {
+                              setDiscountAmount((selectedInvoiceForPayment.discount_amount || 0).toString())
+                              setDiscountOfferedBy('')
+                              setDiscountReason(selectedInvoiceForPayment.discount_reason || '')
+                            } else if (selectedEntry) {
+                              try {
+                                const notes = selectedEntry.notes ? (typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes) : {}
+                                const discountData = notes.discount || {}
+                                setDiscountAmount((discountData.discount_amount || 0).toString())
+                                setDiscountOfferedBy(discountData.discount_offered_by || '')
+                                setDiscountReason(discountData.discount_reason || '')
+                              } catch {
+                                setDiscountAmount('')
+                                setDiscountOfferedBy('')
+                                setDiscountReason('')
+                              }
+                            }
+                          }}
+                          style={{
+                            padding: '0.375rem 0.75rem',
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                          }}
+                        >
+                          <Edit2 style={{ width: '0.75rem', height: '0.75rem' }} />
+                          {(() => {
+                            const currentDiscount = selectedInvoiceForPayment?.discount_amount || 
+                              (selectedEntry?.notes ? (() => {
+                                try {
+                                  const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                                  return notes.discount?.discount_amount || 0
+                                } catch {
+                                  return 0
+                                }
+                              })() : 0)
+                            return currentDiscount > 0 ? 'Edit' : 'Add'
+                          })()}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
+                            Amount (Rs.)
+                          </label>
+                          <input
+                            type="number"
+                            value={discountAmount}
+                            onChange={(e) => setDiscountAmount(e.target.value)}
+                            min="0"
+                            step="0.01"
+                            placeholder="Enter discount"
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem'
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '500', color: '#92400e', marginBottom: '0.25rem', display: 'block' }}>
+                            Reason
+                          </label>
+                          <textarea
+                            value={discountReason}
+                            onChange={(e) => setDiscountReason(e.target.value)}
+                            placeholder="Reason for discount"
+                            rows={2}
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem',
+                              resize: 'vertical'
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                           <button
                             onClick={() => {
-                              setEditingInvoiceNumber(false)
-                              setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
+                              setEditingDiscount(false)
+                              setDiscountAmount('')
+                              setDiscountOfferedBy('')
+                              setDiscountReason('')
                             }}
-                            disabled={updatingInvoiceNumber}
                             style={{
-                              padding: '0.625rem 1rem',
-                              borderRadius: '0.5rem',
-                              backgroundColor: '#e5e7eb',
+                              padding: '0.5rem 0.75rem',
+                              backgroundColor: '#f3f4f6',
                               color: '#374151',
                               border: 'none',
-                              cursor: updatingInvoiceNumber ? 'not-allowed' : 'pointer',
-                              fontSize: '0.875rem',
-                              fontWeight: '500'
+                              borderRadius: '0.375rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '500',
+                              cursor: 'pointer'
                             }}
                           >
                             Cancel
                           </button>
+                          <button
+                            onClick={async () => {
+                              if (!selectedEntry) return
+                              try {
+                                setSavingDiscount(true)
+                                const discount = parseFloat(discountAmount || '0')
+                                
+                                if (selectedInvoiceForPayment) {
+                                  const subtotal = selectedEntry.products.reduce((sum, p) => sum + p.price, 0) || parseFloat(selectedInvoiceForPayment.total_amount || 0)
+                                  const tax = parseFloat(selectedInvoiceForPayment.tax_amount || 0)
+                                  const newTotal = subtotal - discount + tax
+                                  
+                                  const { error } = await supabase
+                                    .from('invoices')
+                                    .update({
+                                      discount_amount: discount,
+                                      discount_reason: discountReason,
+                                      total_amount: newTotal,
+                                      balance_amount: newTotal - parseFloat(selectedInvoiceForPayment.paid_amount || 0)
+                                    })
+                                    .eq('id', selectedInvoiceForPayment.id)
+                                  
+                                  if (error) throw error
+                                  
+                                  const { data: updatedInvoice } = await supabase
+                                    .from('invoices')
+                                    .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                                    .eq('id', selectedInvoiceForPayment.id)
+                                    .single()
+                                  
+                                  if (updatedInvoice) {
+                                    setSelectedInvoiceForPayment(updatedInvoice)
+                                  }
+                                  
+                                  alert('Discount saved successfully!')
+                                } else {
+                                  const discountPercentage = selectedEntry.totalAmount > 0 ? (discount / selectedEntry.totalAmount) * 100 : 0
+                                  const discountData = {
+                                    discount_amount: discount,
+                                    discount_percentage: discountPercentage,
+                                    discount_offered_by: discountOfferedBy,
+                                    discount_reason: discountReason
+                                  }
+                                  
+                                  const tenantId = getCurrentTenantId()
+                                  const isSuper = isSuperAdmin()
+                                  
+                                  let notesQuery = supabase
+                                    .from('vehicle_inward')
+                                    .select('notes')
+                                    .eq('id', selectedEntry.id)
+                                  
+                                  if (!isSuper && tenantId) {
+                                    notesQuery = notesQuery.eq('tenant_id', tenantId)
+                                  }
+                                  
+                                  const { data: existing } = await notesQuery.single()
+                                  
+                                  let notesData: any = {}
+                                  if (existing?.notes) {
+                                    try {
+                                      notesData = typeof existing.notes === 'string' ? JSON.parse(existing.notes) : existing.notes
+                                    } catch {
+                                      notesData = {}
+                                    }
+                                  }
+                                  
+                                  notesData.discount = discountData
+                                  
+                                  let updateNotesQuery = supabase
+                                    .from('vehicle_inward')
+                                    .update({ notes: JSON.stringify(notesData) })
+                                    .eq('id', selectedEntry.id)
+                                  
+                                  if (!isSuper && tenantId) {
+                                    updateNotesQuery = updateNotesQuery.eq('tenant_id', tenantId)
+                                  }
+                                  
+                                  const { error } = await updateNotesQuery
+                                  
+                                  if (error) throw error
+                                  
+                                  const updatedEntry = {
+                                    ...selectedEntry,
+                                    discountAmount: discount,
+                                    discountPercentage: discountPercentage,
+                                    discountOfferedBy: discountOfferedBy,
+                                    discountReason: discountReason,
+                                    finalAmount: selectedEntry.totalAmount - discount,
+                                    notes: JSON.stringify(notesData)
+                                  }
+                                  setSelectedEntry(updatedEntry)
+                                  
+                                  alert('Discount information saved successfully!')
+                                }
+                                
+                                setEditingDiscount(false)
+                              } catch (error: any) {
+                                console.error('Error saving discount:', error)
+                                alert(`Failed to save discount: ${error.message}`)
+                              } finally {
+                                setSavingDiscount(false)
+                              }
+                            }}
+                            disabled={savingDiscount}
+                            style={{
+                              padding: '0.5rem 0.75rem',
+                              backgroundColor: savingDiscount ? '#9ca3af' : '#059669',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '500',
+                              cursor: savingDiscount ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            <Save style={{ width: '0.75rem', height: '0.75rem', display: 'inline', marginRight: '0.25rem' }} />
+                            {savingDiscount ? 'Saving...' : 'Save'}
+                          </button>
                         </div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
-                            Invoice Number (External Platform):
-                          </div>
-                          <div style={{ 
-                            fontSize: '1.125rem', 
-                            fontWeight: '700', 
-                            color: selectedEntry.invoiceNumber ? '#0c4a6e' : '#9ca3af',
-                            letterSpacing: '0.05em'
-                          }}>
-                            {selectedEntry.invoiceNumber || 'No invoice number set'}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setEditingInvoiceNumber(true)
-                            setInvoiceNumberInput(selectedEntry.invoiceNumber || '')
-                          }}
-                          style={{
-                            padding: '0.5rem 1rem',
-                            borderRadius: '0.5rem',
-                            backgroundColor: '#0284c7',
-                            color: 'white',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '0.875rem',
-                            fontWeight: '500',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            whiteSpace: 'nowrap'
-                          }}
-                          title={selectedEntry.invoiceNumber ? 'Edit invoice number' : 'Add invoice number'}
-                        >
-                          <Edit2 style={{ width: '1rem', height: '1rem' }} />
-                          {selectedEntry.invoiceNumber ? 'Edit' : 'Add'}
-                        </button>
                       </div>
                     )}
                   </div>
-                ) : (
-                  // Display only for other roles
-                  selectedEntry.invoiceNumber && (
+                </div>
+
+                {/* Payment Details - Compact */}
+                {selectedInvoiceForPayment ? (
+                  <div>
+                    <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <DollarSign style={{ width: '0.875rem', height: '0.875rem' }} />
+                      Payment Status
+                    </h3>
                     <div style={{ 
-                      backgroundColor: '#f0f9ff', 
-                      borderRadius: '0.75rem', 
-                      padding: '1.25rem',
-                      border: '1px solid #bae6fd'
+                      backgroundColor: 'white', 
+                      borderRadius: '0.5rem', 
+                      padding: '1rem', 
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#0369a1', marginBottom: '0.25rem', fontWeight: '600' }}>
-                          Invoice Number (External Platform):
-                        </div>
-                        <div style={{ 
-                          fontSize: '1.125rem', 
-                          fontWeight: '700', 
-                          color: '#0c4a6e',
-                          letterSpacing: '0.05em'
-                        }}>
-                          {selectedEntry.invoiceNumber}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-
-              {/* Invoice References */}
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#111827', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <FileText style={{ width: '1.25rem', height: '1.25rem' }} />
-                  Invoice References (Optional)
-                </h3>
-                <div style={{ backgroundColor: '#f9fafb', borderRadius: '0.75rem', padding: '1.25rem', border: '1px solid #e5e7eb' }}>
-                  {/* Add Invoice Link */}
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        placeholder="Paste invoice link (URL)"
-                        value={invoiceLink}
-                        onChange={(e) => setInvoiceLink(e.target.value)}
-                        style={{
-                          flex: 1,
-                          padding: '0.625rem',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem'
-                        }}
-                      />
-                      <button
-                        onClick={handleAddInvoiceLink}
-                        disabled={!invoiceLink.trim() || invoiceLoading}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.625rem 1rem',
-                          backgroundColor: invoiceLoading || !invoiceLink.trim() ? '#9ca3af' : '#2563eb',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem',
-                          fontWeight: '600',
-                          cursor: invoiceLoading || !invoiceLink.trim() ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        <LinkIcon style={{ width: '1rem', height: '1rem' }} />
-                        Add Link
-                      </button>
+                      {(() => {
+                        const subtotal = selectedEntry?.products.reduce((sum, p) => sum + p.price, 0) || parseFloat(selectedInvoiceForPayment.total_amount || 0)
+                        const discount = parseFloat(selectedInvoiceForPayment.discount_amount || 0)
+                        const tax = parseFloat(selectedInvoiceForPayment.tax_amount || 0)
+                        const total = subtotal - discount + tax
+                        const paid = parseFloat(selectedInvoiceForPayment.paid_amount || 0)
+                        const balance = total - paid
+                        
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8125rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669', fontWeight: '600' }}>
+                              <span>Paid:</span>
+                              <span>₹{paid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: balance > 0 ? '#dc2626' : '#059669', fontWeight: '600' }}>
+                              <span>Balance:</span>
+                              <span>₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div style={{ width: '100%', height: '0.5rem', backgroundColor: '#e5e7eb', borderRadius: '0.25rem', overflow: 'hidden', marginTop: '0.25rem' }}>
+                              <div 
+                                style={{ 
+                                  width: `${total > 0 ? (paid / total) * 100 : 0}%`,
+                                  height: '100%',
+                                  backgroundColor: balance > 0 ? '#f59e0b' : '#10b981',
+                                  transition: 'width 0.3s ease'
+                                }}
+                              />
+                            </div>
+                            {balance > 0 && (
+                              <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                                <button
+                                  onClick={() => setShowPaymentModal(true)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.625rem',
+                                    backgroundColor: '#059669',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '0.375rem',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: '600',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Add Payment
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   </div>
-
-                  {/* Upload Invoice File */}
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <label
-                        style={{
-                          flex: 1,
-                          padding: '0.625rem',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem',
-                          backgroundColor: 'white',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          color: invoiceFile ? '#111827' : '#9ca3af'
-                        }}
-                      >
-                        <Upload style={{ width: '1rem', height: '1rem' }} />
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)}
-                          style={{ display: 'none' }}
-                        />
-                        {invoiceFile ? invoiceFile.name : 'Upload Invoice (PDF/Image)'}
-                      </label>
-                      <button
-                        onClick={handleUploadInvoice}
-                        disabled={!invoiceFile || invoiceLoading}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.625rem 1rem',
-                          backgroundColor: invoiceLoading || !invoiceFile ? '#9ca3af' : '#059669',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '0.5rem',
-                          fontSize: '0.875rem',
-                          fontWeight: '600',
-                          cursor: invoiceLoading || !invoiceFile ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        <Upload style={{ width: '1rem', height: '1rem' }} />
-                        Upload
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Display Invoice References */}
-                  {invoiceReferences.length > 0 && (
-                    <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem' }}>
-                        Added References:
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {invoiceReferences.map((ref, idx) => (
-                          <div
-                            key={idx}
+                ) : (
+                  <div>
+                    <h3 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <DollarSign style={{ width: '0.875rem', height: '0.875rem' }} />
+                      Payment Status
+                    </h3>
+                    <div style={{ 
+                      backgroundColor: 'white', 
+                      borderRadius: '0.5rem', 
+                      padding: '1rem', 
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8125rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontWeight: '500' }}>
+                          <span>Paid:</span>
+                          <span>₹0.00</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontWeight: '500' }}>
+                          <span>Balance:</span>
+                          <span>₹{selectedEntry?.products.reduce((sum, p) => sum + p.price, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</span>
+                        </div>
+                        <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                          <button
+                            onClick={async () => {
+                              if (!selectedEntry) return
+                              
+                              // Validate that there are products with valid prices
+                              if (!selectedEntry.products || selectedEntry.products.length === 0) {
+                                alert('Cannot create invoice: No products found for this entry. Please add products first.')
+                                return
+                              }
+                              
+                              const validProducts = selectedEntry.products.filter(p => {
+                                const price = parseFloat(p.price) || 0
+                                return price > 0
+                              })
+                              
+                              if (validProducts.length === 0) {
+                                alert('Cannot create invoice: No products with valid prices found. Please ensure all products have prices greater than 0.')
+                                return
+                              }
+                              
+                              // First, create invoice if it doesn't exist
+                              if (!selectedInvoiceForPayment) {
+                                setCreatingInvoice(true)
+                                try {
+                                  let discountFromNotes = 0
+                                  let discountReasonFromNotes = ''
+                                  try {
+                                    if (selectedEntry.notes) {
+                                      const notes = typeof selectedEntry.notes === 'string' ? JSON.parse(selectedEntry.notes) : selectedEntry.notes
+                                      discountFromNotes = notes.discount?.discount_amount || 0
+                                      discountReasonFromNotes = notes.discount?.discount_reason || ''
+                                    }
+                                  } catch {}
+                                  
+                                  const response = await fetch('/api/invoices', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      vehicleInwardId: selectedEntry.id,
+                                      invoiceDate: new Date().toISOString().split('T')[0],
+                                      dueDate: (() => {
+                                        const date = new Date()
+                                        date.setDate(date.getDate() + 30)
+                                        return date.toISOString().split('T')[0]
+                                      })(),
+                                      discountAmount: discountFromNotes,
+                                      discountReason: discountReasonFromNotes,
+                                      lineItems: validProducts.map(p => {
+                                        const price = parseFloat(p.price) || 0
+                                        return {
+                                          product_name: p.product || 'Unknown Product',
+                                          brand: p.brand || '',
+                                          department: p.department || '',
+                                          quantity: 1,
+                                          unit_price: price,
+                                          line_total: price
+                                        }
+                                      }),
+                                      issueImmediately: true
+                                    })
+                                  })
+                                  
+                                  const data = await response.json()
+                                  
+                                  if (!response.ok) {
+                                    throw new Error(data.error || 'Failed to create invoice')
+                                  }
+                                  
+                                  if (data.invoice) {
+                                    // Refresh invoice data
+                                    await findInvoiceForEntry(selectedEntry.id)
+                                    // Small delay to ensure state is updated before opening modal
+                                    setTimeout(() => {
+                                      setShowPaymentModal(true)
+                                    }, 100)
+                                  }
+                                } catch (error: any) {
+                                  console.error('Error creating invoice:', error)
+                                  alert(`Failed to create invoice: ${error.message || 'Unknown error'}`)
+                                } finally {
+                                  setCreatingInvoice(false)
+                                }
+                              } else {
+                                // Invoice exists, just open payment modal
+                                setShowPaymentModal(true)
+                              }
+                            }}
+                            disabled={creatingInvoice || !selectedEntry}
                             style={{
-                              padding: '0.75rem',
-                              backgroundColor: 'white',
-                              borderRadius: '0.5rem',
-                              border: '1px solid #e5e7eb',
+                              width: '100%',
+                              padding: '0.625rem',
+                              backgroundColor: creatingInvoice ? '#9ca3af' : '#059669',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.8125rem',
+                              fontWeight: '600',
+                              cursor: creatingInvoice ? 'not-allowed' : 'pointer',
                               display: 'flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
                               gap: '0.5rem'
                             }}
                           >
-                            {ref.type === 'link' ? (
-                              <LinkIcon style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
-                            ) : (
-                              <FileImage style={{ width: '1rem', height: '1rem', color: '#059669' }} />
-                            )}
-                            <a
-                              href={ref.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                flex: 1,
-                                fontSize: '0.875rem',
-                                color: '#2563eb',
-                                textDecoration: 'none'
-                              }}
-                            >
-                              {ref.fileName || ref.url.substring(0, 50)}
-                            </a>
-                          </div>
-                        ))}
+                            <DollarSign style={{ width: '0.875rem', height: '0.875rem' }} />
+                            {creatingInvoice ? 'Creating Invoice...' : 'Add Payment'}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Comments and Attachments */}
-              <div style={{ marginBottom: '2rem' }}>
-                <VehicleCommentsSection vehicleId={selectedEntry.id} userRole={userRole} />
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '2px solid #e5e7eb' }}>
-                {/* Mark Complete Button */}
-                {selectedEntry.status === 'installation_complete' && (
-                  <button
-                    onClick={handleMarkComplete}
-                    disabled={updatingStatus}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.875rem',
-                      fontWeight: '700',
-                      cursor: updatingStatus ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s',
-                      boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!updatingStatus) e.currentTarget.style.backgroundColor = '#059669'
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!updatingStatus) e.currentTarget.style.backgroundColor = '#10b981'
-                    }}
-                  >
-                    <CheckCircle style={{ width: '1.125rem', height: '1.125rem' }} />
-                    {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
-                  </button>
+                  </div>
                 )}
+              </div>
+            </div>
 
-                <div style={{ display: 'flex', gap: '1rem', marginLeft: 'auto' }}>
-                  <button
-                    onClick={() => {
-                      const csvContent = generateEntryCSV(selectedEntry)
-                      downloadCSV(csvContent, `entry_${selectedEntry.shortId || selectedEntry.id.substring(0, 8)}.csv`)
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.625rem 1.25rem',
-                      backgroundColor: '#059669',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.875rem',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#047857'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#059669'}
-                  >
-                    <Download style={{ width: '1rem', height: '1rem' }} />
-                    Export CSV
-                  </button>
+            {/* Action Buttons - Full Width */}
+            <div style={{ 
+              padding: '0 2.5rem 2rem 2.5rem',
+              maxWidth: '1400px',
+              margin: '0 auto',
+              width: '100%',
+              position: 'sticky',
+              bottom: 0,
+              backgroundColor: 'white',
+              zIndex: 10
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                gap: '1.5rem', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingTop: '1.5rem', 
+                paddingBottom: '1rem',
+                borderTop: '2px solid #e5e7eb',
+                backgroundColor: 'white'
+              }}>
+                {/* Primary Actions - Left Side */}
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {(() => {
+                    // Calculate payment status
+                    let balance = 0
+                    let isFullyPaid = false
+                    let showAddPayment = false
+                    let showMarkComplete = false
+                    
+                    if (selectedInvoiceForPayment) {
+                      const subtotal = selectedEntry?.products.reduce((sum, p) => sum + p.price, 0) || parseFloat(selectedInvoiceForPayment.total_amount || 0)
+                      const discount = parseFloat(selectedInvoiceForPayment.discount_amount || 0)
+                      const tax = parseFloat(selectedInvoiceForPayment.tax_amount || 0)
+                      const total = subtotal - discount + tax
+                      const paid = parseFloat(selectedInvoiceForPayment.paid_amount || 0)
+                      balance = total - paid
+                      isFullyPaid = balance <= 0
+                      
+                      // Show Add Payment if balance > 0 and entry is not completed
+                      showAddPayment = balance > 0 && selectedEntry.status !== 'completed'
+                      
+                      // Show Mark Complete if fully paid or status is installation_complete
+                      showMarkComplete = isFullyPaid || selectedEntry.status === 'installation_complete'
+                    } else {
+                      // No invoice - show Mark Complete if status is installation_complete
+                      showMarkComplete = selectedEntry.status === 'installation_complete'
+                    }
+                    
+                    return (
+                      <>
+                        {/* Add Payment Button */}
+                        {showAddPayment && (
+                          <button
+                            onClick={() => setShowPaymentModal(true)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '0.75rem 1.5rem',
+                              backgroundColor: '#2563eb',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.5rem',
+                              fontSize: '0.875rem',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                          >
+                            <DollarSign style={{ width: '1rem', height: '1rem' }} />
+                            Add Payment
+                          </button>
+                        )}
+                        
+                        {/* Mark as Complete Button - For installation_complete status */}
+                        {showMarkComplete && selectedEntry.status === 'installation_complete' && (
+                          <button
+                            onClick={handleMarkComplete}
+                            disabled={updatingStatus}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '0.75rem 1.5rem',
+                              backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.5rem',
+                              fontSize: '0.875rem',
+                              fontWeight: '600',
+                              cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s',
+                              boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#059669'
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#10b981'
+                            }}
+                          >
+                            <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                            {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
+                          </button>
+                        )}
+                        
+                        {/* Mark as Complete Button - For fully paid invoices */}
+                        {showMarkComplete && selectedInvoiceForPayment && isFullyPaid && selectedEntry.status !== 'installation_complete' && (
+                          <button
+                            onClick={async () => {
+                              if (!selectedInvoiceForPayment || !selectedEntry) return
+                              
+                              if (!confirm('Are you sure you want to mark this entry as Complete? This will finalize the payment and mark the invoice as paid.')) {
+                                return
+                              }
+                              
+                              try {
+                                setUpdatingStatus(true)
+                                
+                                // Update invoice status to paid
+                                const { error: invoiceError } = await supabase
+                                  .from('invoices')
+                                  .update({ 
+                                    status: 'paid',
+                                    balance_amount: 0,
+                                    paid_date: new Date().toISOString().split('T')[0]
+                                  })
+                                  .eq('id', selectedInvoiceForPayment.id)
+                                
+                                if (invoiceError) throw invoiceError
+                                
+                                // Refresh invoice data
+                                const { data: updatedInvoice } = await supabase
+                                  .from('invoices')
+                                  .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                                  .eq('id', selectedInvoiceForPayment.id)
+                                  .single()
+                                
+                                if (updatedInvoice) {
+                                  setSelectedInvoiceForPayment(updatedInvoice)
+                                }
+                                
+                                // Refresh payment history
+                                await fetchPaymentHistory(selectedInvoiceForPayment.id)
+                                
+                                // Refresh summary
+                                fetchSummary()
+                                
+                                alert('Entry marked as complete successfully!')
+                              } catch (error: any) {
+                                console.error('Error marking as complete:', error)
+                                alert(`Failed to mark as complete: ${error.message}`)
+                              } finally {
+                                setUpdatingStatus(false)
+                              }
+                            }}
+                            disabled={updatingStatus}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '0.75rem 1.5rem',
+                              backgroundColor: updatingStatus ? '#9ca3af' : '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.5rem',
+                              fontSize: '0.875rem',
+                              fontWeight: '600',
+                              cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s',
+                              boxShadow: updatingStatus ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#059669'
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!updatingStatus) e.currentTarget.style.backgroundColor = '#10b981'
+                            }}
+                          >
+                            <CheckCircle style={{ width: '1rem', height: '1rem' }} />
+                            {updatingStatus ? 'Marking Complete...' : 'Mark as Complete'}
+                          </button>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+
+                {/* Secondary Actions - Right Side */}
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                   <button
                     onClick={() => setSelectedEntry(null)}
                     style={{
                       padding: '0.625rem 1.25rem',
                       backgroundColor: '#f3f4f6',
                       color: '#374151',
-                      border: 'none',
+                      border: '1px solid #e5e7eb',
                       borderRadius: '0.5rem',
                       fontSize: '0.875rem',
                       fontWeight: '600',
                       cursor: 'pointer',
                       transition: 'all 0.2s'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e5e7eb'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#e5e7eb'
+                      e.currentTarget.style.borderColor = '#d1d5db'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#f3f4f6'
+                      e.currentTarget.style.borderColor = '#e5e7eb'
+                    }}
                   >
                     Close
                   </button>
@@ -2722,6 +3919,111 @@ export default function AccountsPageClient() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Payment Recording Modal */}
+      {showPaymentModal && selectedInvoiceForPayment && (
+        <PaymentRecordingModal
+          invoiceId={selectedInvoiceForPayment.id}
+          invoiceNumber={selectedInvoiceForPayment.invoice_number || 'N/A'}
+          balanceAmount={parseFloat(selectedInvoiceForPayment.balance_amount || 0)}
+          onClose={() => {
+            setShowPaymentModal(false)
+          }}
+          onSuccess={async () => {
+            // Refresh payment history and invoice data
+            if (selectedInvoiceForPayment) {
+              const invoiceId = selectedInvoiceForPayment.id
+              await fetchPaymentHistory(invoiceId)
+              // Refresh invoice data with all fields including discount
+              const { data: updatedInvoice } = await supabase
+                .from('invoices')
+                .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                .eq('id', invoiceId)
+                .single()
+              
+              if (updatedInvoice) {
+                setSelectedInvoiceForPayment(updatedInvoice)
+              }
+              
+              // Refresh summary and invoice list
+              fetchSummary()
+              const statusMap: Record<string, string> = {
+                'entries': 'all',
+                'partial': 'partial',
+                'overdue': 'overdue',
+                'settled': 'paid'
+              }
+              if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
+                fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
+              }
+            }
+            setShowPaymentModal(false)
+          }}
+        />
+      )}
+
+      {/* Payment Edit Modal */}
+      {editingPayment && selectedInvoiceForPayment && (
+        <PaymentRecordingModal
+          invoiceId={selectedInvoiceForPayment.id}
+          invoiceNumber={selectedInvoiceForPayment.invoice_number || 'N/A'}
+          balanceAmount={parseFloat(selectedInvoiceForPayment.balance_amount || 0)}
+          payment={editingPayment}
+          onClose={() => {
+            setEditingPayment(null)
+          }}
+          onSuccess={async () => {
+            // Refresh payment history and invoice data
+            if (selectedInvoiceForPayment) {
+              const invoiceId = selectedInvoiceForPayment.id
+              await fetchPaymentHistory(invoiceId)
+              // Refresh invoice data with all fields including discount
+              const { data: updatedInvoice } = await supabase
+                .from('invoices')
+                .select('id, invoice_number, total_amount, paid_amount, balance_amount, status, due_date, discount_amount, discount_reason, tax_amount')
+                .eq('id', invoiceId)
+                .single()
+              
+              if (updatedInvoice) {
+                setSelectedInvoiceForPayment(updatedInvoice)
+              }
+              
+              // Refresh summary and invoice list
+              fetchSummary()
+              const statusMap: Record<string, string> = {
+                'entries': 'all',
+                'partial': 'partial',
+                'overdue': 'overdue',
+                'settled': 'paid'
+              }
+              if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
+                fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
+              }
+            }
+            setEditingPayment(null)
+          }}
+        />
+      )}
+
+      {/* Invoice Detail Modal */}
+      {selectedInvoice && (
+        <InvoiceDetailModal
+          invoiceId={selectedInvoice}
+          onClose={() => setSelectedInvoice(null)}
+          onUpdate={() => {
+            fetchSummary()
+            const statusMap: Record<string, string> = {
+              'entries': 'all',
+              'partial': 'partial',
+              'overdue': 'overdue',
+              'settled': 'paid'
+            }
+            if (['entries', 'partial', 'overdue', 'settled'].includes(activeTab)) {
+              fetchInvoicesByStatus(statusMap[activeTab] || activeTab)
+            }
+          }}
+        />
       )}
     </div>
   )

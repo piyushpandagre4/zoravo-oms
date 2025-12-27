@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { UserRole } from '@/lib/rbac'
-import { Search, Bell, LogOut, User, Check, CheckCheck, X } from 'lucide-react'
+import { Bell, LogOut, User, Check, CheckCheck, X } from 'lucide-react'
 import { notificationsService, type Notification } from '@/lib/notifications-service'
 import { createClient } from '@/lib/supabase/client'
 import { getCurrentTenantId } from '@/lib/tenant-context'
@@ -153,49 +153,10 @@ export default function Topbar({ userRole, userName, userEmail }: TopbarProps) {
       borderBottom: '1px solid #e5e7eb',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
       padding: '0 2rem',
       boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
     }}>
-      {/* Search */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, maxWidth: '600px' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
-          <Search style={{ 
-            position: 'absolute', 
-            left: '1rem', 
-            top: '50%', 
-            transform: 'translateY(-50%)',
-            width: '1.25rem', 
-            height: '1.25rem',
-            color: '#9ca3af'
-          }} />
-          <input
-            type="text"
-            placeholder="Search vehicles, customers, invoices..."
-            style={{
-              padding: '0.75rem 1rem 0.75rem 3rem',
-              border: '1px solid #e5e7eb',
-              borderRadius: '0.75rem',
-              fontSize: '0.875rem',
-              width: '100%',
-              backgroundColor: '#f9fafb',
-              outline: 'none',
-              transition: 'all 0.2s'
-            }}
-            onFocus={(e) => {
-              e.target.style.backgroundColor = 'white'
-              e.target.style.borderColor = '#3b82f6'
-              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-            }}
-            onBlur={(e) => {
-              e.target.style.backgroundColor = '#f9fafb'
-              e.target.style.borderColor = '#e5e7eb'
-              e.target.style.boxShadow = 'none'
-            }}
-          />
-        </div>
-      </div>
-
       {/* Right side */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
         {/* Notifications - DISABLED FOR NOW - Set ENABLE_NOTIFICATIONS to true to re-enable */}

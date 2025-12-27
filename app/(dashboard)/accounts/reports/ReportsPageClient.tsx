@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,57 +12,81 @@ import {
   Car,
   Calendar,
   Download,
-  Filter
+  Filter,
+  AlertCircle,
+  CreditCard
 } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
-
-// Mock data for charts
-const monthlyRevenue = [
-  { month: 'Jan', revenue: 120000, services: 45 },
-  { month: 'Feb', revenue: 135000, services: 52 },
-  { month: 'Mar', revenue: 150000, services: 48 },
-  { month: 'Apr', revenue: 165000, services: 58 },
-  { month: 'May', revenue: 180000, services: 62 },
-  { month: 'Jun', revenue: 195000, services: 68 },
-]
-
-const serviceTypes = [
-  { name: 'Installation', value: 45, color: '#0088FE' },
-  { name: 'Repair', value: 25, color: '#00C49F' },
-  { name: 'Maintenance', value: 20, color: '#FFBB28' },
-  { name: 'Inspection', value: 10, color: '#FF8042' },
-]
-
-const customerSatisfaction = [
-  { month: 'Jan', satisfaction: 4.2 },
-  { month: 'Feb', satisfaction: 4.3 },
-  { month: 'Mar', satisfaction: 4.5 },
-  { month: 'Apr', satisfaction: 4.4 },
-  { month: 'May', satisfaction: 4.6 },
-  { month: 'Jun', satisfaction: 4.7 },
-]
-
-const topCustomers = [
-  { name: 'Rajesh Kumar', vehicles: 3, totalSpent: 45000 },
-  { name: 'Priya Sharma', vehicles: 2, totalSpent: 32000 },
-  { name: 'Amit Singh', vehicles: 2, totalSpent: 28000 },
-  { name: 'Sunita Patel', vehicles: 1, totalSpent: 25000 },
-  { name: 'Vikram Joshi', vehicles: 1, totalSpent: 22000 },
-]
-
-const kpis = {
-  totalRevenue: 945000,
-  monthlyGrowth: 12.5,
-  totalCustomers: 156,
-  customerGrowth: 8.2,
-  averageOrderValue: 6057,
-  orderValueGrowth: 5.8,
-  completionRate: 94.5,
-  completionGrowth: 2.1,
-}
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts'
+import { createClient } from '@/lib/supabase/client'
 
 export default function ReportsPageClient() {
   const [dateRange, setDateRange] = useState('6months')
+  const [summary, setSummary] = useState<any>(null)
+  const [monthlyRevenue, setMonthlyRevenue] = useState<any[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([])
+  const [overdueInvoices, setOverdueInvoices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchFinancialData()
+  }, [dateRange])
+
+  const fetchFinancialData = async () => {
+    try {
+      setLoading(true)
+      
+      // Fetch summary
+      const summaryRes = await fetch('/api/invoices/summary')
+      const summaryData = await summaryRes.json()
+      if (summaryData.summary) {
+        setSummary(summaryData.summary)
+      }
+
+      // Fetch monthly revenue
+      const { data: monthlyData } = await supabase
+        .from('v_monthly_revenue')
+        .select('*')
+        .order('month', { ascending: false })
+        .limit(6)
+
+      if (monthlyData) {
+        setMonthlyRevenue(monthlyData.map((m: any) => ({
+          month: new Date(m.month).toLocaleDateString('en-IN', { month: 'short' }),
+          invoiced: parseFloat(m.total_invoiced || 0),
+          received: parseFloat(m.total_received || 0),
+          outstanding: parseFloat(m.total_outstanding || 0)
+        })).reverse())
+      }
+
+      // Fetch payment methods
+      const { data: paymentData } = await supabase
+        .from('v_payment_methods_summary')
+        .select('*')
+        .order('total_amount', { ascending: false })
+
+      if (paymentData) {
+        const colors = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d']
+        setPaymentMethods(paymentData.map((p: any, idx: number) => ({
+          name: p.payment_mode,
+          value: parseFloat(p.total_amount || 0),
+          count: p.payment_count,
+          color: colors[idx % colors.length]
+        })))
+      }
+
+      // Fetch overdue invoices
+      const overdueRes = await fetch('/api/invoices?status=overdue')
+      const overdueData = await overdueRes.json()
+      if (overdueData.invoices) {
+        setOverdueInvoices(overdueData.invoices.slice(0, 10)) // Top 10
+      }
+    } catch (error) {
+      console.error('Error fetching financial data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -85,60 +109,64 @@ export default function ReportsPageClient() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards - Financial Metrics */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Invoiced</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₹{kpis.totalRevenue.toLocaleString()}</div>
-            <p className="text-xs text-green-600 flex items-center">
-              <TrendingUp className="h-3 w-3 mr-1" />
-              +{kpis.monthlyGrowth}% from last month
+            <div className="text-2xl font-bold">
+              {loading ? '...' : `₹${parseFloat(summary?.totalInvoiced || 0).toLocaleString('en-IN')}`}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              All issued invoices
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Total Received</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpis.totalCustomers}</div>
-            <p className="text-xs text-green-600 flex items-center">
-              <TrendingUp className="h-3 w-3 mr-1" />
-              +{kpis.customerGrowth}% from last month
+            <div className="text-2xl font-bold text-green-600">
+              {loading ? '...' : `₹${parseFloat(summary?.totalReceived || 0).toLocaleString('en-IN')}`}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Payments received
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Order Value</CardTitle>
-            <Car className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Outstanding</CardTitle>
+            <BarChart3 className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₹{kpis.averageOrderValue.toLocaleString()}</div>
-            <p className="text-xs text-green-600 flex items-center">
-              <TrendingUp className="h-3 w-3 mr-1" />
-              +{kpis.orderValueGrowth}% from last month
+            <div className="text-2xl font-bold text-yellow-600">
+              {loading ? '...' : `₹${parseFloat(summary?.totalOutstanding || 0).toLocaleString('en-IN')}`}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Unpaid balance
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Overdue</CardTitle>
+            <AlertCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpis.completionRate}%</div>
-            <p className="text-xs text-green-600 flex items-center">
-              <TrendingUp className="h-3 w-3 mr-1" />
-              +{kpis.completionGrowth}% from last month
+            <div className="text-2xl font-bold text-red-600">
+              {loading ? '...' : `₹${parseFloat(summary?.totalOverdue || 0).toLocaleString('en-IN')}`}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Past due date
             </p>
           </CardContent>
         </Card>
@@ -157,40 +185,47 @@ export default function ReportsPageClient() {
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Monthly Revenue Trend</CardTitle>
-                <CardDescription>Revenue and service count over time</CardDescription>
+                <CardTitle>Monthly Revenue vs Received</CardTitle>
+                <CardDescription>Invoiced amount vs payments received</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={monthlyRevenue}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip formatter={(value, name) => [
-                      name === 'revenue' ? `₹${value.toLocaleString()}` : value,
-                      name === 'revenue' ? 'Revenue' : 'Services'
-                    ]} />
-                    <Bar dataKey="revenue" fill="#8884d8" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {loading ? (
+                  <div className="h-[300px] flex items-center justify-center">Loading...</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={monthlyRevenue}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip formatter={(value: any) => [`₹${value.toLocaleString('en-IN')}`, '']} />
+                      <Legend />
+                      <Bar dataKey="invoiced" fill="#8884d8" name="Invoiced" />
+                      <Bar dataKey="received" fill="#82ca9d" name="Received" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Revenue Growth</CardTitle>
-                <CardDescription>Month-over-month revenue growth</CardDescription>
+                <CardTitle>Outstanding Trend</CardTitle>
+                <CardDescription>Outstanding balance over time</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={monthlyRevenue}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => [`₹${value.toLocaleString()}`, 'Revenue']} />
-                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {loading ? (
+                  <div className="h-[300px] flex items-center justify-center">Loading...</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={monthlyRevenue}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip formatter={(value: any) => [`₹${value.toLocaleString('en-IN')}`, 'Outstanding']} />
+                      <Line type="monotone" dataKey="outstanding" stroke="#f59e0b" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -201,29 +236,37 @@ export default function ReportsPageClient() {
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Service Type Distribution</CardTitle>
-                <CardDescription>Breakdown of services by type</CardDescription>
+                <CardTitle>Payment Methods Breakdown</CardTitle>
+                <CardDescription>Revenue by payment method</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={serviceTypes}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {serviceTypes.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
+                {loading ? (
+                  <div className="h-[300px] flex items-center justify-center">Loading...</div>
+                ) : paymentMethods.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={paymentMethods}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {paymentMethods.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: any) => `₹${value.toLocaleString('en-IN')}`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No payment data available
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -249,49 +292,53 @@ export default function ReportsPageClient() {
 
         {/* Customer Insights Tab */}
         <TabsContent value="customers" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4">
             <Card>
               <CardHeader>
-                <CardTitle>Customer Satisfaction Trend</CardTitle>
-                <CardDescription>Average customer satisfaction rating</CardDescription>
+                <CardTitle>Overdue Invoices</CardTitle>
+                <CardDescription>Top overdue invoices requiring attention</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={customerSatisfaction}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis domain={[3.5, 5]} />
-                    <Tooltip formatter={(value) => [value, 'Rating']} />
-                    <Line type="monotone" dataKey="satisfaction" stroke="#ffc658" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Customers</CardTitle>
-                <CardDescription>Customers by total spending</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {topCustomers.map((customer, index) => (
-                    <div key={customer.name} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-medium">
-                          {index + 1}
+                {loading ? (
+                  <div className="h-[300px] flex items-center justify-center">Loading...</div>
+                ) : overdueInvoices.length > 0 ? (
+                  <div className="space-y-4">
+                    {overdueInvoices.map((invoice: any) => {
+                      const vehicle = invoice.vehicle_inward?.vehicles
+                      const customer = vehicle?.customers
+                      const daysOverdue = invoice.due_date 
+                        ? Math.floor((new Date().getTime() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24))
+                        : 0
+                      return (
+                        <div key={invoice.id} className="flex items-center justify-between p-4 border rounded-lg">
+                          <div className="flex items-center space-x-4">
+                            <div className="p-2 bg-red-100 rounded-lg">
+                              <AlertCircle className="h-5 w-5 text-red-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{invoice.invoice_number || 'Draft'}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {customer?.name || 'N/A'} - {vehicle?.registration_number || 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-red-600">
+                              ₹{parseFloat(invoice.balance_amount || 0).toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {daysOverdue} days overdue
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{customer.name}</p>
-                          <p className="text-sm text-muted-foreground">{customer.vehicles} vehicles</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold">₹{customer.totalSpent.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No overdue invoices
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

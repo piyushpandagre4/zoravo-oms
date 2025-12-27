@@ -290,6 +290,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 @page {
                   size: A4;
                   margin: 8mm;
+                  margin-bottom: 65mm;
                 }
                 * {
                   margin: 0;
@@ -302,6 +303,9 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   line-height: 1.2;
                   color: #000;
                   background: white;
+                  position: relative;
+                  min-height: 100vh;
+                  height: 100vh;
                 }
                 .header {
                   border-bottom: 2px solid #2563eb;
@@ -467,8 +471,16 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   font-size: 6pt;
                   color: #64748b;
                 }
+                .footer-wrapper {
+                  position: absolute;
+                  bottom: 0;
+                  left: 0;
+                  right: 0;
+                  width: 100%;
+                  padding: 0;
+                }
                 .footer {
-                  margin-top: 6px;
+                  margin-top: 0;
                   padding-top: 4px;
                   border-top: 1px solid #e2e8f0;
                   font-size: 6pt;
@@ -477,6 +489,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                 }
                 .signature-section {
                   margin-top: 8px;
+                  margin-bottom: 8px;
                   display: grid;
                   grid-template-columns: 1fr 1fr;
                   gap: 20px;
@@ -503,6 +516,19 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                   body {
                     print-color-adjust: exact;
                     -webkit-print-color-adjust: exact;
+                    height: 100%;
+                    min-height: 100%;
+                    margin: 0;
+                    padding: 0;
+                  }
+                  .footer-wrapper {
+                    position: fixed;
+                    bottom: 8mm;
+                    left: 8mm;
+                    right: 8mm;
+                    width: calc(100% - 16mm);
+                    padding: 0;
+                    margin: 0;
                   }
                   .no-print {
                     display: none !important;
@@ -673,7 +699,9 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
           backgroundColor: 'white',
           overflowY: 'auto',
           flex: 1,
-          minHeight: 0
+          minHeight: 0,
+          position: 'relative',
+          paddingBottom: '70mm'
         }}>
           {/* Header */}
           <div className="header">
@@ -859,12 +887,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                       <td style={{ fontWeight: '700' }}>{product.product || 'N/A'}</td>
                       <td style={{ fontWeight: '700' }}>{product.brand || 'N/A'}</td>
                       <td style={{ fontWeight: '700' }}>{product.department || 'N/A'}</td>
-                      <td>
-                        <div className="status-cell">
-                          <div className="status-checkbox"></div>
-                          <span className="status-text" style={{ fontSize: '7pt', fontWeight: '600' }}>Completed</span>
-                        </div>
-                      </td>
+                      <td>&nbsp;</td>
                     </tr>
                   ))}
                   {/* Add 3 empty rows */}
@@ -874,12 +897,7 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
                       <td style={{ fontWeight: '700' }}>&nbsp;</td>
                       <td style={{ fontWeight: '700' }}>&nbsp;</td>
                       <td style={{ fontWeight: '700' }}>&nbsp;</td>
-                      <td>
-                        <div className="status-cell">
-                          <div className="status-checkbox"></div>
-                          <span className="status-text" style={{ fontSize: '7pt', fontWeight: '600' }}>Pending</span>
-                        </div>
-                      </td>
+                      <td>&nbsp;</td>
                     </tr>
                   ))}
                 </tbody>
@@ -887,25 +905,27 @@ export default function JobSheetPrint({ vehicle, onClose }: JobSheetPrintProps) 
             </div>
           </div>
 
-
-          {/* Signature Section */}
-          <div className="signature-section">
-            <div className="signature-box">
-              <div className="signature-label">Installer Signature</div>
-              <div style={{ marginTop: '25px', fontSize: '8pt', color: '#64748b' }}>Date: _______________</div>
+          {/* Footer Wrapper - Fixed at bottom */}
+          <div className="footer-wrapper">
+            {/* Signature Section */}
+            <div className="signature-section">
+              <div className="signature-box">
+                <div className="signature-label">Installer Signature</div>
+                <div style={{ marginTop: '25px', fontSize: '8pt', color: '#64748b' }}>Date: _______________</div>
+              </div>
+              <div className="signature-box">
+                <div className="signature-label">Customer Signature</div>
+                <div style={{ marginTop: '25px', fontSize: '8pt', color: '#64748b' }}>Date: __________</div>
+              </div>
             </div>
-            <div className="signature-box">
-              <div className="signature-label">Customer Signature</div>
-              <div style={{ marginTop: '25px', fontSize: '8pt', color: '#64748b' }}>Date: _______________</div>
-            </div>
-          </div>
 
-          {/* Footer */}
-          <div className="footer">
-            <div style={{ marginBottom: '3px', fontWeight: 'bold' }}>Zoravo OMS - Job Sheet</div>
-            <div>Generated on {formatDateTime(new Date().toISOString())}</div>
-            <div style={{ marginTop: '3px', fontSize: '7pt' }}>
-              This is an official record. Please retain for your records.
+            {/* Footer */}
+            <div className="footer">
+              <div style={{ marginBottom: '3px', fontWeight: 'bold' }}>Zoravo OMS - Job Sheet</div>
+              <div>Generated on {formatDateTime(new Date().toISOString())}</div>
+              <div style={{ marginTop: '3px', fontSize: '7pt' }}>
+                This is an official record. Please retain for your records.
+              </div>
             </div>
           </div>
         </div>

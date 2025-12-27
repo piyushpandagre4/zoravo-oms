@@ -846,6 +846,206 @@ class NotificationWorkflowService {
   }
 
   /**
+   * Send notification when invoice is issued
+   */
+  async notifyInvoiceIssued(
+    vehicleId: string,
+    vehicleData: any,
+    invoiceData: { invoiceNumber: string; amount: number; dueDate: string }
+  ): Promise<void> {
+    const tenantId = await this.getTenantIdWithFallback(vehicleData)
+    
+    if (!tenantId) {
+      console.error('[Notification] ❌ No tenant_id available for invoice issued notification')
+      return
+    }
+
+    if (!(await this.isWhatsAppEnabled(tenantId))) {
+      console.log('[Notification] WhatsApp notifications disabled, skipping')
+      return
+    }
+
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
+    if (config) {
+      await whatsappService.initialize(config)
+    }
+
+    const event: WorkflowEvent = {
+      type: 'invoice_issued',
+      vehicleId,
+      vehicleNumber: vehicleData.registration_number,
+      customerName: vehicleData.customer_name || vehicleData.customers?.name,
+      triggeredByRole: 'accountant',
+      metadata: {
+        invoiceNumber: invoiceData.invoiceNumber,
+        amount: invoiceData.amount,
+        dueDate: invoiceData.dueDate
+      }
+    }
+
+    // Notify customer (if phone number available)
+    const customerPhone = vehicleData.customers?.phone || vehicleData.customer_phone
+    if (customerPhone) {
+      const recipients: NotificationRecipient[] = [{
+        userId: vehicleData.customer_id || '',
+        role: 'customer',
+        phoneNumber: customerPhone
+      }]
+      await whatsappService.sendWorkflowNotification(event, recipients, this.supabase, tenantId)
+    }
+  }
+
+  /**
+   * Send notification when payment is received
+   */
+  async notifyPaymentReceived(
+    vehicleId: string,
+    vehicleData: any,
+    paymentData: { amount: number; paymentMode: string; invoiceNumber: string }
+  ): Promise<void> {
+    const tenantId = await this.getTenantIdWithFallback(vehicleData)
+    
+    if (!tenantId) {
+      console.error('[Notification] ❌ No tenant_id available for payment received notification')
+      return
+    }
+
+    if (!(await this.isWhatsAppEnabled(tenantId))) {
+      console.log('[Notification] WhatsApp notifications disabled, skipping')
+      return
+    }
+
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
+    if (config) {
+      await whatsappService.initialize(config)
+    }
+
+    const event: WorkflowEvent = {
+      type: 'payment_received',
+      vehicleId,
+      vehicleNumber: vehicleData.registration_number,
+      customerName: vehicleData.customer_name || vehicleData.customers?.name,
+      triggeredByRole: 'accountant',
+      metadata: {
+        amount: paymentData.amount,
+        paymentMode: paymentData.paymentMode,
+        invoiceNumber: paymentData.invoiceNumber
+      }
+    }
+
+    // Notify customer
+    const customerPhone = vehicleData.customers?.phone || vehicleData.customer_phone
+    if (customerPhone) {
+      const recipients: NotificationRecipient[] = [{
+        userId: vehicleData.customer_id || '',
+        role: 'customer',
+        phoneNumber: customerPhone
+      }]
+      await whatsappService.sendWorkflowNotification(event, recipients, this.supabase, tenantId)
+    }
+  }
+
+  /**
+   * Send notification when invoice becomes overdue
+   */
+  async notifyInvoiceOverdue(
+    vehicleId: string,
+    vehicleData: any,
+    invoiceData: { invoiceNumber: string; balanceAmount: number; dueDate: string }
+  ): Promise<void> {
+    const tenantId = await this.getTenantIdWithFallback(vehicleData)
+    
+    if (!tenantId) {
+      console.error('[Notification] ❌ No tenant_id available for invoice overdue notification')
+      return
+    }
+
+    if (!(await this.isWhatsAppEnabled(tenantId))) {
+      console.log('[Notification] WhatsApp notifications disabled, skipping')
+      return
+    }
+
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
+    if (config) {
+      await whatsappService.initialize(config)
+    }
+
+    const event: WorkflowEvent = {
+      type: 'invoice_overdue',
+      vehicleId,
+      vehicleNumber: vehicleData.registration_number,
+      customerName: vehicleData.customer_name || vehicleData.customers?.name,
+      triggeredByRole: 'system',
+      metadata: {
+        invoiceNumber: invoiceData.invoiceNumber,
+        balanceAmount: invoiceData.balanceAmount,
+        dueDate: invoiceData.dueDate
+      }
+    }
+
+    // Notify customer
+    const customerPhone = vehicleData.customers?.phone || vehicleData.customer_phone
+    if (customerPhone) {
+      const recipients: NotificationRecipient[] = [{
+        userId: vehicleData.customer_id || '',
+        role: 'customer',
+        phoneNumber: customerPhone
+      }]
+      await whatsappService.sendWorkflowNotification(event, recipients, this.supabase, tenantId)
+    }
+  }
+
+  /**
+   * Send payment reminder
+   */
+  async sendInvoiceReminder(
+    vehicleId: string,
+    vehicleData: any,
+    invoiceData: { invoiceNumber: string; amount: number; dueDate: string }
+  ): Promise<void> {
+    const tenantId = await this.getTenantIdWithFallback(vehicleData)
+    
+    if (!tenantId) {
+      console.error('[Notification] ❌ No tenant_id available for invoice reminder')
+      return
+    }
+
+    if (!(await this.isWhatsAppEnabled(tenantId))) {
+      console.log('[Notification] WhatsApp notifications disabled, skipping')
+      return
+    }
+
+    const config = await whatsappService.loadConfig(this.supabase, tenantId)
+    if (config) {
+      await whatsappService.initialize(config)
+    }
+
+    const event: WorkflowEvent = {
+      type: 'invoice_reminder',
+      vehicleId,
+      vehicleNumber: vehicleData.registration_number,
+      customerName: vehicleData.customer_name || vehicleData.customers?.name,
+      triggeredByRole: 'accountant',
+      metadata: {
+        invoiceNumber: invoiceData.invoiceNumber,
+        amount: invoiceData.amount,
+        dueDate: invoiceData.dueDate
+      }
+    }
+
+    // Notify customer
+    const customerPhone = vehicleData.customers?.phone || vehicleData.customer_phone
+    if (customerPhone) {
+      const recipients: NotificationRecipient[] = [{
+        userId: vehicleData.customer_id || '',
+        role: 'customer',
+        phoneNumber: customerPhone
+      }]
+      await whatsappService.sendWorkflowNotification(event, recipients, this.supabase, tenantId)
+    }
+  }
+
+  /**
    * Send notification when accountant completes
    */
   async notifyAccountantComplete(vehicleId: string, vehicleData: any): Promise<void> {

@@ -314,24 +314,25 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
 
   return (
     <div style={{
-      marginTop: '2rem',
-      padding: '1.5rem',
-      backgroundColor: '#f9fafb',
-      borderRadius: '0.75rem',
-      border: '1px solid #e5e7eb'
+      marginTop: '0',
+      padding: '0',
+      backgroundColor: 'transparent',
+      borderRadius: '0',
+      border: 'none'
     }}>
-      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: '#111827', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <MessageSquare style={{ width: '1.25rem', height: '1.25rem' }} />
+      <h3 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#111827', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <MessageSquare style={{ width: '1.5rem', height: '1.5rem', color: '#2563eb' }} />
         Comments & Attachments
       </h3>
 
       {/* Add Comment Form */}
       <div style={{
         backgroundColor: 'white',
-        borderRadius: '0.5rem',
-        padding: '1rem',
+        borderRadius: '0.75rem',
+        padding: '1.5rem',
         marginBottom: '1.5rem',
-        border: '1px solid #e5e7eb'
+        border: '2px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
       }}>
         <textarea
           value={commentText}
@@ -339,14 +340,15 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
           placeholder="Add a comment..."
           style={{
             width: '100%',
-            minHeight: '100px',
-            padding: '0.75rem',
-            border: '1px solid #d1d5db',
+            minHeight: '120px',
+            padding: '1rem',
+            border: '2px solid #d1d5db',
             borderRadius: '0.5rem',
             fontSize: '0.875rem',
             fontFamily: 'inherit',
             resize: 'vertical',
-            outline: 'none'
+            outline: 'none',
+            transition: 'border-color 0.2s'
           }}
           onFocus={(e) => {
             e.target.style.borderColor = '#3b82f6'
@@ -364,16 +366,26 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
             display: 'inline-flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.5rem 1rem',
-            backgroundColor: '#f3f4f6',
-            border: '1px solid #d1d5db',
+            padding: '0.625rem 1.25rem',
+            backgroundColor: '#eff6ff',
+            border: '2px solid #3b82f6',
             borderRadius: '0.5rem',
             cursor: 'pointer',
             fontSize: '0.875rem',
-            fontWeight: '500',
-            color: '#374151'
-          }}>
-            <Paperclip style={{ width: '1rem', height: '1rem' }} />
+            fontWeight: '600',
+            color: '#2563eb',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#dbeafe'
+            e.currentTarget.style.borderColor = '#2563eb'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#eff6ff'
+            e.currentTarget.style.borderColor = '#3b82f6'
+          }}
+          >
+            <Paperclip style={{ width: '1.125rem', height: '1.125rem' }} />
             Attach Files
             <input
               type="file"
@@ -385,7 +397,7 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
           </label>
           
           {files.length > 0 && (
-            <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
               {files.map((file, index) => (
                 <div
                   key={index}
@@ -393,14 +405,16 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.5rem',
-                    padding: '0.5rem 0.75rem',
+                    padding: '0.625rem 1rem',
                     backgroundColor: '#eff6ff',
-                    border: '1px solid #dbeafe',
+                    border: '2px solid #dbeafe',
                     borderRadius: '0.5rem',
-                    fontSize: '0.75rem'
+                    fontSize: '0.8125rem',
+                    fontWeight: '500',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                   }}
                 >
-                  <Paperclip style={{ width: '0.875rem', height: '0.875rem', color: '#2563eb' }} />
+                  <Paperclip style={{ width: '1rem', height: '1rem', color: '#2563eb' }} />
                   <span style={{ color: '#1e40af', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {file.name}
                   </span>
@@ -412,16 +426,26 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
                       border: 'none',
                       cursor: 'pointer',
                       display: 'flex',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      marginLeft: '0.25rem'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#fee2e2'
+                      e.currentTarget.style.borderRadius = '0.25rem'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent'
                     }}
                   >
-                    <X style={{ width: '0.875rem', height: '0.875rem', color: '#dc2626' }} />
+                    <X style={{ width: '1rem', height: '1rem', color: '#dc2626' }} />
                   </button>
                 </div>
               ))}
             </div>
           )}
         </div>
+        
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
 
         <button
           onClick={handleSubmit}
@@ -454,6 +478,7 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
           <Send style={{ width: '1rem', height: '1rem' }} />
           {submitting ? 'Adding...' : 'Add Comment'}
         </button>
+        </div>
       </div>
 
       {/* Comments List */}
@@ -479,9 +504,17 @@ export default function VehicleCommentsSection({ vehicleId, userRole }: VehicleC
               key={comment.id}
               style={{
                 backgroundColor: 'white',
-                borderRadius: '0.5rem',
-                padding: '1rem',
-                border: '1px solid #e5e7eb'
+                borderRadius: '0.75rem',
+                padding: '1.25rem',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                transition: 'box-shadow 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
